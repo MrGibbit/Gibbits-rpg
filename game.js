@@ -175,13 +175,18 @@
     fletching:{ name:"Fletching", xp:0 },
     woodcutting:{ name:"Woodcut", xp:0 },
     mining:{ name:"Mining", xp:0 },
+firemaking:{ name:"Firemaking", xp:0 },
+
   };
   const SKILL_ICONS = {
     accuracy:"🎯", power:"💪", defense:"🛡️", ranged:"🏹", sorcery:"✨", fletching:"🪶", health:"❤️",
-    woodcutting:"🪵", mining:"⛏️"
+    woodcutting:"🪵", firemaking:"🔥",
+mining:"⛏️"
   };
 
   const lastSkillLevel = Object.create(null);
+  const lastSkillXPMsgAt = Object.create(null);
+
 
   // HP progression constants
   const BASE_HP = 30;
@@ -236,6 +241,7 @@ const SHOP_BUYS = {
     pick: { id:"pick", name:"Crude Pick", stack:false, icon:"⛏️" },
     knife:{ id:"knife",name:"Knife",      stack:false, icon:"🔪" },
     gold: { id:"gold", name:"Coins", stack:true, currency:true, icon:"🪙" },
+    flint_steel:{ id:"flint_steel", name:"Flint & Steel", stack:false, icon:"🧷" },
 
     sword: { id:"sword", name:"Sword", stack:false, icon:"🗡️", equipSlot:"weapon" },
     shield:{ id:"shield",name:"Shield",stack:false, icon:"🛡️", equipSlot:"offhand" },
@@ -331,6 +337,11 @@ const SHOP_BUYS = {
     if (!item) return 0;
 
     qty = Math.max(1, qty|0);
+    // gold never takes inventory slots
+    if (id === GOLD_ITEM_ID){
+      addGold(qty);
+      return qty;
+    }
 
     // ammo: route to quiver (no inventory slots)
     if (item.ammo){
@@ -517,6 +528,13 @@ const SHOP_BUYS = {
     if (!s || !Number.isFinite(amount) || amount <= 0) return;
     const before = levelFromXP(s.xp);
     s.xp += Math.floor(amount);
+    // show XP gain (throttled per skill so it doesn't spam)
+    const t = now();
+    if ((t - (lastSkillXPMsgAt[skillKey] ?? 0)) > 900){
+      chatLine(`<span class="muted">+${Math.floor(amount)} ${s.name} XP</span>`);
+      lastSkillXPMsgAt[skillKey] = t;
+    }
+
     const after = levelFromXP(s.xp);
 
     if ((lastSkillLevel[skillKey] ?? before) < after){
@@ -957,9 +975,10 @@ if (winVendor) winVendor.classList.toggle("hidden", !windowsOpen.vendor);
   function toggleWindow(name){
     if (name === "bank" && !bankAvailable) return;
   if (name === "vendor" && !vendorAvailable) {
-    chatLine(`<span class="muted">You need to be next to the vendor to trade.</span>`);
+    chatLine(`<span class="muted">You need to be next to a vendor/shopkeeper to trade.</span>`);
     return;
   }
+
 
 
     const isOpen = !!windowsOpen[name];
@@ -1152,7 +1171,8 @@ makeWindowDraggable(winVendor, document.getElementById("hdrVendor"));
 
     function renderSkills(){
     skillsGrid.innerHTML="";
-    const order = ["health","accuracy","power","defense","ranged","sorcery","fletching","woodcutting","mining"];
+    const order = ["health","accuracy","power","defense","ranged","sorcery","fletching","woodcutting","mining","firemaking"];
+
     for (const k of order){
       const s = Skills[k];
       const {lvl,next,pct} = xpToNext(s.xp);
@@ -1522,6 +1542,42 @@ updateVendorIcon();
       renderInv();
       return true;
     }
+// Flint and steel + log => light fire under player, step south
+if (toolId === "flint_steel" && targetId === "log") {
+  // can't light if a fire is already here
+  if (interactables.some(it => it.type==="fire" && it.x===player.x && it.y===player.y)) {
+    chatLine(`<span class="warn">There's already a fire here.</span>`);
+    return true;
+  }
+
+  startTimedAction("firemake", 1.2, "Lighting fire…", () => {
+    // consume 1 log
+    if (!removeItemsFromInventory("log", 1)) {
+      chatLine(`<span class="warn">You need a log.</span>`);
+      return;
+    }
+
+    interactables.push({
+      type: "fire",
+      x: player.x,
+      y: player.y,
+      createdAt: now(),
+      expiresAt: now() + 45000
+    });
+
+    addXP?.("firemaking", 10);
+    chatLine(`<span class="good">You light a fire.</span>`);
+
+    // step south (y+1) if possible
+    const sx = player.x;
+    const sy = player.y + 1;
+    if (isWalkable(sx, sy) && !getEntityAt(sx, sy)) {
+      setPathTo(sx, sy);
+    }
+  });
+
+  return true;
+}
 
     chatLine(`<span class="muted">Nothing interesting happens.</span>`);
     return false;
@@ -1762,6 +1818,8 @@ updateVendorIcon();
     addToInventory("axe", 1);
     addToInventory("pick", 1);
     addToInventory("knife", 1);
+    addToInventory("flint_steel", 1);
+
 
     if (player.class === "Warrior"){
       addToInventory("sword", 1);
@@ -1906,6 +1964,7 @@ updateVendorIcon();
   const idx = interactables.findIndex(it => it.x===tx && it.y===ty);
   if (idx !== -1){
     const it = interactables[idx];
+    if (it.type === "fire")   return { kind:"fire", index: idx, label:"Campfire", x:it.x, y:it.y };
     if (it.type === "bank")   return { kind:"bank", index: idx, label:"Bank Chest", x:it.x, y:it.y };
     if (it.type === "vendor") return { kind:"vendor", index: idx, label:"Vendor", x:it.x, y:it.y };
     if (it.type === "shop")   return { kind:"shop", index: idx, label:"Shopkeeper", x:it.x, y:it.y };
@@ -1931,6 +1990,9 @@ updateVendorIcon();
     if (ent.kind==="res" && ent.label==="Tree") chatLine(`<span class="muted">A sturdy tree. Looks good for logs.</span>`);
     if (ent.kind==="res" && ent.label==="Rock") chatLine(`<span class="muted">A mineral rock. Might contain ore.</span>`);
     if (ent.kind==="bank") chatLine(`<span class="muted">A secure bank chest.</span>`);
+    if (ent.kind==="vendor") chatLine(`<span class="muted">A traveling vendor. Buys and sells goods.</span>`);
+    if (ent.kind==="shop") chatLine(`<span class="muted">A shopkeeper ready to trade.</span>`);
+
   }
 
   function beginInteraction(ent){
@@ -1941,13 +2003,41 @@ updateVendorIcon();
   }
 
   // ---------- Interaction helpers ----------
-  function clickToInteract(tileX,tileY){
+    function clickToInteract(tileX,tileY){
+    // If player has selected a "Use" item from inventory, world clicks can become actions.
+    if (activeUseItemId === "flint_steel"){
+      closeCtxMenu();
+
+      // Must be a walkable tile (no water/walls)
+      if (!isWalkable(tileX, tileY)){
+        chatLine(`<span class="warn">You can't light a fire there.</span>`);
+        setUseState(null);
+        return;
+      }
+
+      // Can't light on top of an entity/resource/mob
+      const ent = getEntityAt(tileX, tileY);
+      if (ent){
+        chatLine(`<span class="warn">That space is occupied.</span>`);
+        setUseState(null);
+        return;
+      }
+
+      // Target becomes "firemake" at that tile; movement + range handled by ensureWalkIntoRangeAndAct()
+      player.action = { type:"idle", endsAt:0, total:0, label:"Idle", onComplete:null };
+      player.target = { kind:"firemake", x: tileX, y: tileY };
+      ensureWalkIntoRangeAndAct();
+      return;
+    }
+
     const ent=getEntityAt(tileX,tileY);
     if (ent){ beginInteraction(ent); return; }
+
     player.target=null;
     player.action={type:"idle", endsAt:0, total:0, label:"Idle", onComplete:null};
     setPathTo(tileX,tileY);
   }
+
 
   // ---------- Combat + actions ----------
   const gatherParticles = [];
@@ -2098,213 +2188,258 @@ updateVendorIcon();
     }
   }
 
-  function ensureWalkIntoRangeAndAct(){
-    const t = player.target;
-    if (!t) return;
+function ensureWalkIntoRangeAndAct(){
+  const t = player.target;
+  if (!t) return;
 
-    if (t.kind==="bank"){
-      const b = interactables[t.index];
-      if (!b) return stopAction();
-      if (!inRangeOfTile(b.x, b.y, 1.1)){
-        const adj = [[1,0],[-1,0],[0,1],[0,-1]]
-          .map(([dx,dy])=>({x:b.x+dx,y:b.y+dy}))
-          .filter(p=>isWalkable(p.x,p.y));
-        if (!adj.length) return stopAction("No path to bank.");
-        adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
-        setPathTo(adj[0].x, adj[0].y);
-        return;
-if (t.kind==="vendor"){
-  const v = interactables[t.index];
-  if (!v) return stopAction();
+  // ---------- BANK ----------
+  if (t.kind === "bank"){
+    const b = interactables[t.index];
+    if (!b) return stopAction();
 
-  if (!inRangeOfTile(v.x, v.y, 1.1)){
-    const adj = [[1,0],[-1,0],[0,1],[0,-1]]
-      .map(([dx,dy])=>({x:v.x+dx,y:v.y+dy}))
-      .filter(p=>isWalkable(p.x,p.y));
-    if (!adj.length) return stopAction("No path to vendor.");
-    adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
-    setPathTo(adj[0].x, adj[0].y);
+    if (!inRangeOfTile(b.x, b.y, 1.1)){
+      const adj = [[1,0],[-1,0],[0,1],[0,-1]]
+        .map(([dx,dy])=>({x:b.x+dx,y:b.y+dy}))
+        .filter(p=>isWalkable(p.x,p.y));
+      if (!adj.length) return stopAction("No path to bank.");
+      adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
+      setPathTo(adj[0].x, adj[0].y);
+      return;
+    }
+
+    if (player.action.type !== "idle") return;
+
+    chatLine(`<span class="muted">You open the bank chest.</span>`);
+    bankAvailable = true;
+    updateBankIcon();
+
+    openWindow("bank");
+    stopAction();
     return;
   }
+  if (t.kind==="firemake"){
+    const fx = t.x|0, fy = t.y|0;
+
+    // Walk next to the target tile first
+    if (!inRangeOfTile(fx, fy, 1.1)){
+      const adj = [[1,0],[-1,0],[0,1],[0,-1]]
+        .map(([dx,dy])=>({x:fx+dx,y:fy+dy}))
+        .filter(p=>isWalkable(p.x,p.y));
+      if (!adj.length){
+        setUseState(null);
+        return stopAction("No path to that tile.");
+      }
+      adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
+      setPathTo(adj[0].x, adj[0].y);
+      return;
+    }
+
+    if (player.action.type!=="idle") return;
+
+    // Must have a log in inventory
+    if (!removeItemsFromInventory("log", 1)){
+      chatLine(`<span class="warn">You need a log in your inventory.</span>`);
+      setUseState(null);
+      stopAction();
+      player.target = null;
+      return;
+    }
+
+    // Tile must still be valid and empty at time of lighting
+    if (!isWalkable(fx, fy) || getEntityAt(fx, fy)){
+      chatLine(`<span class="warn">You can't light a fire there.</span>`);
+      setUseState(null);
+      stopAction();
+      player.target = null;
+      return;
+    }
+
+    // Create campfire (expires in ~60s)
+    interactables.push({ type:"fire", x:fx, y:fy, expiresAt: now() + 60000 });
+
+    chatLine(`<span class="good">You light a campfire.</span>`);
+    setUseState(null);
+    stopAction();
+    player.target = null;
+    return;
+  }
+
+
+  // ---------- VENDOR / SHOPKEEPER (TRADE) ----------
+  if (t.kind === "vendor" || t.kind === "shop"){
+    const v = interactables[t.index];
+    if (!v) return stopAction();
+
+    if (!inRangeOfTile(v.x, v.y, 1.1)){
+      const adj = [[1,0],[-1,0],[0,1],[0,-1]]
+        .map(([dx,dy])=>({x:v.x+dx,y:v.y+dy}))
+        .filter(p=>isWalkable(p.x,p.y));
+      if (!adj.length) return stopAction(`No path to ${t.kind === "shop" ? "shopkeeper" : "vendor"}.`);
+      adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
+      setPathTo(adj[0].x, adj[0].y);
+      return;
+    }
+
+    if (player.action.type !== "idle") return;
+
+    chatLine(`<span class="muted">You start trading.</span>`);
+    openWindow("vendor");
+    renderVendorUI();
+
+    stopAction();
+    return;
+  }
+
+  // ---------- RESOURCES ----------
+  if (t.kind==="res"){
+    const r = resources[t.index];
+    if (!r || !r.alive) return stopAction("That resource is gone.");
+    if (r.type==="tree" && !hasItem("axe")) return stopAction("You need an axe.");
+    if (r.type==="rock" && !hasItem("pick")) return stopAction("You need a pick.");
+
+    if (!inRangeOfTile(r.x, r.y, 1.1)){
+      const adj = [[1,0],[-1,0],[0,1],[0,-1]]
+        .map(([dx,dy])=>({x:r.x+dx,y:r.y+dy}))
+        .filter(p=>isWalkable(p.x,p.y));
+      if (!adj.length) return stopAction("No path to target.");
+      adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
+      setPathTo(adj[0].x, adj[0].y);
+      return;
+    }
+
+    player.facing.x = clamp(r.x - player.x, -1, 1);
+    player.facing.y = clamp(r.y - player.y, -1, 1);
+
+    if (player.action.type !== "idle") return;
+
+    if (r.type==="tree"){
+      chatLine(`You swing your axe at the tree...`);
+      startTimedAction("woodcut", 1400, "Chopping...", () => {
+        r.alive=false; r.respawnAt=now()+9000;
+
+        const got = addToInventory("log", 1);
+        if (got === 1){
+          addXP("woodcutting", 35);
+          chatLine(`<span class="good">You get a log.</span> (+35 XP)`);
+        } else {
+          addGroundLoot(r.x, r.y, "log", 1);
+          chatLine(`<span class="warn">Inventory full: ${Items.log.name}</span>`);
+        }
+      });
+    } else {
+      chatLine(`You chip away at the rock...`);
+      startTimedAction("mine", 1600, "Mining...", () => {
+        r.alive=false; r.respawnAt=now()+11000;
+
+        const got = addToInventory("ore", 1);
+        if (got === 1){
+          addXP("mining", 40);
+          chatLine(`<span class="good">You get some ore.</span> (+40 XP)`);
+        } else {
+          addGroundLoot(r.x, r.y, "ore", 1);
+          chatLine(`<span class="warn">Inventory full: ${Items.ore.name}</span>`);
+        }
+      });
+    }
+    return;
+  }
+
+  // ---------- MOBS ----------
+  if (t.kind==="mob"){
+    const m=mobs[t.index];
+    if (!m || !m.alive) return stopAction("That creature is gone.");
+
+    const style = getCombatStyle();
+    const maxRangeTiles = (style === "melee") ? 1.15 : 5.0;
+    const dTiles = tilesFromPlayerToTile(m.x, m.y);
+
+    if (dTiles > maxRangeTiles){
+      if (style !== "melee"){
+        const tNow = now();
+        if (!player._lastRangeMsgAt || (tNow - player._lastRangeMsgAt) > 900){
+          chatLine(`<span class="warn">Out of range (max 5).</span>`);
+          player._lastRangeMsgAt = tNow;
+        }
+        const best = findBestTileWithinRange(m.x, m.y, 5.0);
+        if (!best) return stopAction("No path to target.");
+        player.path = best.path;
+        return;
       }
 
+      const adj = [[1,0],[-1,0],[0,1],[0,-1]]
+        .map(([dx,dy])=>({x:m.x+dx,y:m.y+dy}))
+        .filter(p=>isWalkable(p.x,p.y));
+      if (!adj.length) return stopAction("No path to target.");
+      adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
+      setPathTo(adj[0].x, adj[0].y);
+      return;
+    }
 
-  if (player.action.type!=="idle") return;
+    player.facing.x = clamp(m.x - player.x, -1, 1);
+    player.facing.y = clamp(m.y - player.y, -1, 1);
 
-  chatLine(`<span class="muted">You start trading with the vendor.</span>`);
-  openWindow("vendor");
-  renderVendorUI();
+    const tNow=now();
+    if (tNow < player.attackCooldownUntil) return;
+    player.attackCooldownUntil = tNow + 900;
 
-  stopAction();
-  return;
+    if (style === "ranged"){
+      if (!consumeFromQuiver("wooden_arrow", 1)){
+        chatLine(`<span class="warn">No arrows.</span>`);
+        return stopAction();
+      }
+    }
+
+    const dmg = 1 + Math.floor(Math.random()*4);
+    m.hp -= dmg;
+
+    if (style === "melee") spawnCombatFX("slash", m.x, m.y);
+    if (style === "ranged") spawnCombatFX("arrow", m.x, m.y);
+    if (style === "magic") spawnCombatFX("bolt", m.x, m.y);
+
+    addXP("health", dmg);
+
+    if (style === "melee"){
+      addXP(meleeTraining, dmg);
+    } else if (style === "ranged"){
+      addXP("ranged", dmg);
+      addXP("power", dmg);
+    } else {
+      addXP("sorcery", dmg);
+    }
+
+    if (style === "magic"){
+      chatLine(`You cast <b>Air Bolt</b> at the rat for <b>${dmg}</b>.`);
+    } else if (style === "ranged"){
+      chatLine(`You shoot the rat for <b>${dmg}</b>.`);
+    } else {
+      chatLine(`You hit the rat for <b>${dmg}</b>.`);
+    }
+
+    if (m.hp <= 0){
+      m.alive=false; m.respawnAt=now()+12000; m.hp=0;
+      chatLine(`<span class="good">You defeat the rat.</span>`);
+
+      if (Math.random() < 0.75){
+        const got = addToInventory("bone", 1);
+        if (got === 1){
+          chatLine(`<span class="good">The rat drops a bone.</span>`);
+        } else {
+          addGroundLoot(m.x, m.y, "bone", 1);
+          chatLine(`<span class="warn">Inventory full: ${Items.bone.name}</span>`);
+        }
+        if (Math.random() < 0.65){
+  const g = 1 + Math.floor(Math.random()*8);
+  addGold(g);
+  chatLine(`<span class="good">You gain ${g} gold.</span>`);
 }
 
-      if (player.action.type!=="idle") return;
-
-      chatLine(`<span class="muted">You open the bank chest.</span>`);
-      bankAvailable = true;
-      updateBankIcon();
-
-      // Bank opens + auto-open inventory
-      openWindow("bank");
+      }
 
       stopAction();
-      return;
-    }
-
-    if (t.kind==="res"){
-      const r = resources[t.index];
-      if (!r || !r.alive) return stopAction("That resource is gone.");
-      if (r.type==="tree" && !hasItem("axe")) return stopAction("You need an axe.");
-      if (r.type==="rock" && !hasItem("pick")) return stopAction("You need a pick.");
-
-      if (!inRangeOfTile(r.x, r.y, 1.1)){
-        const adj = [[1,0],[-1,0],[0,1],[0,-1]]
-          .map(([dx,dy])=>({x:r.x+dx,y:r.y+dy}))
-          .filter(p=>isWalkable(p.x,p.y));
-        if (!adj.length) return stopAction("No path to target.");
-        adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
-        setPathTo(adj[0].x, adj[0].y);
-        return;
-      }
-
-      player.facing.x = clamp(r.x - player.x, -1, 1);
-      player.facing.y = clamp(r.y - player.y, -1, 1);
-
-      if (player.action.type !== "idle") return;
-
-      if (r.type==="tree"){
-        chatLine(`You swing your axe at the tree...`);
-        startTimedAction("woodcut", 1400, "Chopping...", () => {
-          r.alive=false; r.respawnAt=now()+9000;
-
-          const got = addToInventory("log", 1);
-          if (got === 1){
-            addXP("woodcutting", 35);
-            chatLine(`<span class="good">You get a log.</span> (+35 XP)`);
-          } else {
-            addGroundLoot(r.x, r.y, "log", 1);
-            chatLine(`<span class="warn">Inventory full: ${Items.log.name}</span>`);
-          }
-        });
-      } else {
-        chatLine(`You chip away at the rock...`);
-        startTimedAction("mine", 1600, "Mining...", () => {
-          r.alive=false; r.respawnAt=now()+11000;
-
-          const got = addToInventory("ore", 1);
-          if (got === 1){
-            addXP("mining", 40);
-            chatLine(`<span class="good">You get some ore.</span> (+40 XP)`);
-          } else {
-            addGroundLoot(r.x, r.y, "ore", 1);
-            chatLine(`<span class="warn">Inventory full: ${Items.ore.name}</span>`);
-          }
-        });
-      }
-      return;
-    }
-
-    if (t.kind==="mob"){
-      const m=mobs[t.index];
-      if (!m || !m.alive) return stopAction("That creature is gone.");
-
-      const style = getCombatStyle();
-      const maxRangeTiles = (style === "melee") ? 1.15 : 5.0;
-      const dTiles = tilesFromPlayerToTile(m.x, m.y);
-
-      if (dTiles > maxRangeTiles){
-        if (style !== "melee"){
-          const tNow = now();
-          if (!player._lastRangeMsgAt || (tNow - player._lastRangeMsgAt) > 900){
-            chatLine(`<span class="warn">Out of range (max 5).</span>`);
-            player._lastRangeMsgAt = tNow;
-          }
-          const best = findBestTileWithinRange(m.x, m.y, 5.0);
-          if (!best) return stopAction("No path to target.");
-          player.path = best.path;
-          return;
-        }
-
-        const adj = [[1,0],[-1,0],[0,1],[0,-1]]
-          .map(([dx,dy])=>({x:m.x+dx,y:m.y+dy}))
-          .filter(p=>isWalkable(p.x,p.y));
-        if (!adj.length) return stopAction("No path to target.");
-        adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
-        setPathTo(adj[0].x, adj[0].y);
-        return;
-      }
-
-      player.facing.x = clamp(m.x - player.x, -1, 1);
-      player.facing.y = clamp(m.y - player.y, -1, 1);
-
-      const tNow=now();
-      if (tNow < player.attackCooldownUntil) return;
-      player.attackCooldownUntil = tNow + 900;
-
-      // Bow ammo rules (quiver)
-      if (style === "ranged"){
-        if (!consumeFromQuiver("wooden_arrow", 1)){
-          chatLine(`<span class="warn">No arrows.</span>`);
-          return stopAction();
-        }
-      }
-
-      // Do damage
-      const dmg = 1 + Math.floor(Math.random()*4);
-      m.hp -= dmg;
-
-      // Combat animation
-      if (style === "melee") spawnCombatFX("slash", m.x, m.y);
-      if (style === "ranged") spawnCombatFX("arrow", m.x, m.y);
-      if (style === "magic") spawnCombatFX("bolt", m.x, m.y);
-
-      // Health XP always from dealt damage (all styles)
-      addXP("health", dmg);
-
-      // Melee training: XP to selected ONLY (no other defense sources exist right now)
-      if (style === "melee"){
-        addXP(meleeTraining, dmg);
-      } else if (style === "ranged"){
-        addXP("ranged", dmg);
-        addXP("power", dmg);
-      } else {
-        addXP("sorcery", dmg);
-      }
-
-      if (style === "magic"){
-        chatLine(`You cast <b>Air Bolt</b> at the rat for <b>${dmg}</b>.`);
-      } else if (style === "ranged"){
-        chatLine(`You shoot the rat for <b>${dmg}</b>.`);
-      } else {
-        chatLine(`You hit the rat for <b>${dmg}</b>.`);
-      }
-
-      if (m.hp <= 0){
-        m.alive=false; m.respawnAt=now()+12000; m.hp=0;
-        chatLine(`<span class="good">You defeat the rat.</span>`);
-
-        if (Math.random() < 0.75){
-          // auto-loot attempt; if full, it stays on ground
-          const got = addToInventory("bone", 1);
-          if (got === 1){
-            chatLine(`<span class="good">The rat drops a bone.</span>`);
-          } else {
-            addGroundLoot(m.x, m.y, "bone", 1);
-            chatLine(`<span class="warn">Inventory full: ${Items.bone.name}</span>`);
-          }
-        // gold drop (stays on ground; wallet picks it up when you walk near)
-        if (Math.random() < 0.65){
-          const g = 1 + Math.floor(Math.random()*8);
-          addGroundLoot(m.x, m.y, GOLD_ITEM_ID, g);
-          chatLine(`<span class="good">The rat drops ${g} gold.</span>`);
-        }
-
-        }
-        stopAction();
-      }
     }
   }
+}
+
 
   function inRangeOfCurrentTarget(){
     const t=player.target;
@@ -2349,15 +2484,23 @@ if (t.kind==="vendor"){
         let qty = qty0|0;
         if (qty<=0){ pile.delete(id); continue; }
 
-        const item = Items[id];
-        if (!item){ pile.delete(id); continue; }
+       const item = Items[id];
+if (!item){ pile.delete(id); continue; }
 
-        if (item.ammo){
-          // quiver always accepts
-          addToQuiver(id, qty);
-          pile.delete(id);
-          continue;
-        }
+// gold goes to wallet (does not take inventory slots)
+if (id === GOLD_ITEM_ID){
+  addGold(qty);
+  pile.delete(id);
+  continue;
+}
+
+if (item.ammo){
+  // quiver always accepts
+  addToQuiver(id, qty);
+  pile.delete(id);
+  continue;
+}
+
 
         // addToInventory adds one-per-slot for non-ammo; returns how many added
         const added = addToInventory(id, qty);
@@ -2592,18 +2735,47 @@ if (t.kind==="vendor"){
       if (it.x<startX-1 || it.x>endX+1 || it.y<startY-1 || it.y>endY+1) continue;
       if (it.type==="bank") drawBankChest(it.x,it.y);
 
+      if (it.type==="fire"){
+        const cx = it.x * TILE + TILE/2;
+        const cy = it.y * TILE + TILE/2;
 
-if(it.type === "shop"){
-  // simple vendor marker
+        ctx.save();
+        ctx.translate(cx, cy);
+
+        // simple flame marker
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(251,191,36,.95)";
+        ctx.fill();
+
+        ctx.fillStyle = "rgba(17,24,39,.95)";
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("🔥", 0, 1);
+
+        ctx.restore();
+      }
+
+if (it.type === "shop"){
+  // shopkeeper marker (draw in WORLD coords; camera/zoom already handled by ctx transform)
+  const cx = it.x * TILE + TILE/2;
+  const cy = it.y * TILE + TILE/2;
+
   ctx.save();
-  ctx.translate((it.x - camera.x)*TILE + TILE/2, (it.y - camera.y)*TILE + TILE/2);
+  ctx.translate(cx, cy);
+
   ctx.beginPath();
-  ctx.arc(0, 0, TILE*0.28, 0, Math.PI*2);
+  ctx.arc(0, 0, 9, 0, Math.PI*2);
   ctx.fillStyle = "#7c3aed";
   ctx.fill();
-  ctx.fillStyle = "#111827";
+
+  ctx.fillStyle = "rgba(17,24,39,.95)";
   ctx.font = "12px sans-serif";
-  ctx.fillText("$", -4, 4);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("🛒", 0, 1);
+
   ctx.restore();
 }
 
@@ -2891,11 +3063,18 @@ if(it.type === "shop"){
       opts.push({label:"Walk here", onClick:walkHere});
 } else if (ent?.kind==="vendor"){
   opts.push({label:"Trade", onClick:()=>beginInteraction(ent)});
-  opts.push({label:"Examine Vendor", onClick:()=>chatLine(`<span class="muted">A traveling vendor. Buys and sells goods.</span>`)});
+  opts.push({label:"Examine Vendor", onClick:()=>examineEntity(ent)});
   opts.push({type:"sep"});
   opts.push({label:"Walk here", onClick:walkHere});
 
-    } else {
+} else if (ent?.kind==="shop"){
+  opts.push({label:"Trade", onClick:()=>beginInteraction(ent)});
+  opts.push({label:"Examine Shopkeeper", onClick:()=>examineEntity(ent)});
+  opts.push({type:"sep"});
+  opts.push({label:"Walk here", onClick:walkHere});
+
+} else {
+
       if (isWalkable(tx,ty)) opts.push({label:"Walk here", onClick:walkHere});
       else opts.push({label:"Nothing interesting", onClick:()=>chatLine(`<span class="muted">You can't walk there.</span>`)});
     }
@@ -3069,6 +3248,13 @@ if(it.type === "shop"){
     for (const m of mobs){
       if (!m.alive && m.respawnAt && t>=m.respawnAt){ m.alive=true; m.respawnAt=0; m.hp=m.maxHp; }
     }
+    // expire campfires
+    for (let i=interactables.length-1; i>=0; i--){
+      const it = interactables[i];
+      if (it.type==="fire" && it.expiresAt && t >= it.expiresAt){
+        interactables.splice(i,1);
+      }
+    }
 
     // bank availability
     const bankIt = interactables.find(it=>it.type==="bank");
@@ -3078,21 +3264,25 @@ if(it.type === "shop"){
       bankAvailable = false;
     }
     updateBankIcon();
-// vendor availability
-const vendorIndex = interactables.findIndex(o => o.type === "vendor");
+// vendor availability (any trade source: vendor OR shop)
 vendorAvailable = false;
 vendorInRangeIndex = -1;
 
-if (vendorIndex >= 0){
-  const v = interactables[vendorIndex];
-  vendorAvailable = inRangeOfTile(v.x, v.y, 1.1);
-  vendorInRangeIndex = vendorAvailable ? vendorIndex : -1;
+for (let i=0; i<interactables.length; i++){
+  const it = interactables[i];
+  if (it.type !== "vendor" && it.type !== "shop") continue;
+  if (inRangeOfTile(it.x, it.y, 1.1)){
+    vendorAvailable = true;
+    vendorInRangeIndex = i;
+    break;
+  }
 }
 
 updateVendorIcon();
 if (windowsOpen.vendor && !vendorAvailable){
   closeWindow("vendor");
 }
+
 
 
     // action completion
@@ -3180,10 +3370,11 @@ if (windowsOpen.vendor && !vendorAvailable){
       } else if (player.target.kind==="mob"){
         const m=mobs[player.target.index];
         if (m?.alive){ tx=m.x; ty=m.y; }
-      } else if (player.target.kind==="bank"){
+      } else if (player.target.kind==="bank" || player.target.kind==="vendor" || player.target.kind==="shop"){
         const b=interactables[player.target.index];
         if (b){ tx=b.x; ty=b.y; }
       }
+
       if (tx!==undefined){
         ctx.strokeStyle="rgba(251,191,36,.9)";
         ctx.lineWidth=2;
