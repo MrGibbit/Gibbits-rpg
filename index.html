@@ -23,7 +23,11 @@
         <div class="hpBar"><div id="hudHPBar"></div></div>
         <div class="hpRow" style="margin-top:8px; font-weight:800; color:rgba(169,183,198,.95);">
           <div id="hudClass">Warrior</div>
-          <div id="hudQuiverText">Quiver: 0</div>
+          <div style="display:flex; gap:10px; align-items:center;">
+  <div id="hudGoldText">Gold: 0</div>
+  <div id="hudQuiverText">Quiver: 0</div>
+</div>
+
         </div>
       </div>
     </div>
@@ -46,7 +50,8 @@
     <!-- Windows -->
     <div class="window hidden" id="winInventory" style="left:18px; top:70px; width:360px; height:420px;">
       <div class="winHeader" id="hdrInventory">
-        <div class="title">Inventory <span class="pill" id="invCount">0/28</span> <span class="pill" id="invQuiverPill">Quiver: 0</span></div>
+        <div class="title">Inventory <span class="pill" id="invCount">0/28</span> <span class="pill" id="invQuiverPill">Quiver: 0</span> <span class="pill" id="invGoldPill">Gold: 0</span></div>
+
         <button class="winClose" data-close="inventory" title="Close">✕</button>
       </div>
       <div class="winBody">
@@ -89,7 +94,10 @@
       </div>
     </div>
 
-    <div class="window hidden" id="winSkills" style="left:18px; top:520px; width:380px; height:470px;">
+        <div class="window hidden" id="winSkills" style="left:720px; top:70px; width:650px; height:600px;">
+
+
+
       <div class="winHeader" id="hdrSkills">
         <div class="title">Skills</div>
         <button class="winClose" data-close="skills" title="Close">✕</button>

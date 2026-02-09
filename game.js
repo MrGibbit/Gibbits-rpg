@@ -176,6 +176,10 @@
     woodcutting:{ name:"Woodcut", xp:0 },
     mining:{ name:"Mining", xp:0 },
   };
+  const SKILL_ICONS = {
+    accuracy:"🎯", power:"💪", defense:"🛡️", ranged:"🏹", sorcery:"✨", fletching:"🪶", health:"❤️",
+    woodcutting:"🪵", mining:"⛏️"
+  };
 
   const lastSkillLevel = Object.create(null);
 
@@ -184,6 +188,31 @@
   const HP_PER_LEVEL = 2;
 
   // ---------- Items ----------
+  const GOLD_ITEM_ID = "gold"; // <-- if your gold item's id differs, change this string
+
+  // ---------- Wallet (gold does not take inventory slots) ----------
+  const wallet = { gold: 0 };
+
+  const getGold = () => (wallet.gold | 0);
+
+  function addGold(qty){
+    qty = Math.max(0, qty|0);
+    if (!qty) return 0;
+    wallet.gold = (wallet.gold|0) + qty;
+    renderGold();
+    return qty;
+  }
+
+  function spendGold(qty){
+    qty = Math.max(0, qty|0);
+    if (!qty) return true;
+    const have = wallet.gold|0;
+    if (have < qty) return false;
+    wallet.gold = have - qty;
+    renderGold();
+    return true;
+  }
+
   const MAX_INV = 28;
   const MAX_BANK = 56;
 
@@ -191,6 +220,7 @@
     axe:  { id:"axe",  name:"Crude Axe",  stack:false, icon:"🪓" },
     pick: { id:"pick", name:"Crude Pick", stack:false, icon:"⛏️" },
     knife:{ id:"knife",name:"Knife",      stack:false, icon:"🔪" },
+    gold: { id:"gold", name:"Coins", stack:true, currency:true, icon:"🪙" },
 
     sword: { id:"sword", name:"Sword", stack:false, icon:"🗡️", equipSlot:"weapon" },
     shield:{ id:"shield",name:"Shield",stack:false, icon:"🛡️", equipSlot:"offhand" },
@@ -234,6 +264,8 @@
   function getQuiverCount(){
     return (quiver.wooden_arrow | 0);
   }
+
+
 
   function clearSlots(arr){ for (let i=0;i<arr.length;i++) arr[i]=null; }
   function countSlots(arr){ return arr.reduce((a,s)=>a+(s?1:0),0); }
@@ -280,40 +312,63 @@
   // Inventory: ONLY ammo stacks (but arrows are moved to quiver, so ammo in inv is legacy)
   function addToInventory(id, qty=1){
     const item = Items[id];
-    if (!item || qty<=0) return 0;
-    qty = Math.max(1, qty|0);
+    if (!item || !Number.isFinite(qty)) return 0;
+    qty = Math.floor(qty);
+    // gold: route to wallet (no inventory slots)
+    if (id === GOLD_ITEM_ID){
+      return addGold(qty);
+    }
 
-    // arrows/ammo: route to quiver (no inventory slots)
+    // ammo: route to quiver (no inventory slots)
     if (item.ammo){
+      if (qty <= 0) return 0;
       return addToQuiver(id, qty);
     }
 
-    let added=0;
-    for (let i=0;i<qty;i++){
-      const empty=inv.findIndex(s=>!s);
-      if (empty<0) break;
+    // coins: stack in inventory (and allow qty=0 to "ensure stack exists")
+    if (item.currency){
+      if (qty < 0) return 0;
+      let s = inv.find(x => x && x.id === id);
+      if (!s){
+        const empty = inv.findIndex(x => !x);
+        if (empty < 0) return 0;
+        inv[empty] = { id, qty: 0 };
+        s = inv[empty];
+      }
+      if (qty > 0){
+        s.qty = (s.qty|0) + qty;
+      }
+      renderInv();
+      return Math.max(0, qty);
+    }
+
+    // everything else: one-per-slot (no stacking in inventory)
+    if (qty <= 0) return 0;
+    let added = 0;
+    for (let i=0; i<qty; i++){
+      const empty = inv.findIndex(s => !s);
+      if (empty < 0) break;
       inv[empty] = { id, qty:1 };
       added++;
     }
-    if (added>0) renderInv();
+    if (added > 0) renderInv();
     return added;
   }
 
+
   function hasItem(id){ return inv.some(s=>s && s.id===id); }
 
-  function removeItemsFromInventory(id, qty=1){
+    function removeItemsFromInventory(id, qty=1){
     const item = Items[id]; if (!item) return false;
-    qty = Math.max(1, qty|0);
+    qty = Math.max(1, Math.floor(qty||1));
 
-    // ammo should not exist in inventory, but handle safely
-    if (item.ammo){
-      return consumeFromQuiver(id, qty);
-    }
+    if (item.ammo) return consumeFromQuiver(id, qty);
+    if (item.currency) return removeGold(qty);
 
     let remaining = qty;
-    for (let i=0;i<inv.length && remaining>0;i++){
-      if (inv[i] && inv[i].id===id){
-        inv[i]=null;
+    for (let i=0; i<inv.length && remaining>0; i++){
+      if (inv[i] && inv[i].id === id){
+        inv[i] = null;
         remaining--;
       }
     }
@@ -321,8 +376,14 @@
     return remaining === 0;
   }
 
+
   // ---------- Bank stacking behavior ----------
   function addToBank(arr, id, qty=1){
+    if (id === GOLD_ITEM_ID){
+      addGold(qty);
+      return true;
+    }
+
     const item=Items[id]; if (!item) return false;
     if (id === "bronze_arrow") id = "wooden_arrow";
     qty = Math.max(1, qty|0);
@@ -418,6 +479,8 @@
   const hudHPTextEl = document.getElementById("hudHPText");
   const hudHPBarEl = document.getElementById("hudHPBar");
   const hudQuiverTextEl = document.getElementById("hudQuiverText");
+  const hudGoldTextEl = document.getElementById("hudGoldText");
+
 
   function recalcMaxHPFromHealth(){
     const healthLvl = levelFromXP(Skills.health.xp);
@@ -434,13 +497,22 @@
     hudClassEl.textContent = player.class;
     hudHPTextEl.textContent = `HP ${player.hp} / ${player.maxHp}`;
     hudHPBarEl.style.width = `${(player.maxHp>0 ? (player.hp/player.maxHp) : 0) * 100}%`;
+    if (hudGoldTextEl) hudGoldTextEl.textContent = `Gold: ${getGold()}`;
     hudQuiverTextEl.textContent = `Quiver: ${getQuiverCount()}`;
+  }
+  function renderGold(){
+    const g = getGold();
+    if (hudGoldTextEl) hudGoldTextEl.textContent = `Gold: ${g}`;
+    const invGoldPill = document.getElementById("invGoldPill");
+    if (invGoldPill) invGoldPill.textContent = `Gold: ${g}`;
   }
 
   function renderQuiver(){
     document.getElementById("invQuiverPill").textContent = `Quiver: ${getQuiverCount()}`;
     document.getElementById("eqQuiverPill").textContent = `Quiver: ${getQuiverCount()}`;
+        renderGold();
     renderHPHUD();
+
   }
 
   function addXP(skillKey, amount){
@@ -853,24 +925,29 @@
     }
   }
 
-  function renderSkills(){
+    function renderSkills(){
     skillsGrid.innerHTML="";
     const order = ["health","accuracy","power","defense","ranged","sorcery","fletching","woodcutting","mining"];
     for (const k of order){
-      const s=Skills[k];
-      const {lvl,next,pct}=xpToNext(s.xp);
-      const div=document.createElement("div");
-      div.className="stat";
-      div.innerHTML=`
-        <div class="k">${s.name}</div>
+      const s = Skills[k];
+      const {lvl,next,pct} = xpToNext(s.xp);
+      const toNext = Math.max(0, next - s.xp);
+      const icon = SKILL_ICONS[k] ?? "⭐";
+
+      const div = document.createElement("div");
+      div.className = "stat";
+      div.title = `${s.name}\nXP: ${s.xp}\nXP to next: ${toNext}`;
+      div.innerHTML = `
+        <div class="k"><span class="ico">${icon}</span> ${s.name}</div>
         <div class="v">Lv ${lvl}</div>
         <div class="small">${s.xp} XP</div>
         <div class="bar"><div style="width:${clamp(pct,0,1)*100}%"></div></div>
-        <div class="small">${Math.max(0,next-s.xp)} XP to next</div>
+        <div class="small">${toNext} XP to next</div>
       `;
       skillsGrid.appendChild(div);
     }
   }
+
 
   function renderEquipment(){
     const w = equipment.weapon;
@@ -1449,7 +1526,11 @@
     equipment.offhand = null;
 
     // reset quiver
+    // keep a dedicated coins stack in inventory
+    addToInventory("gold", 0);
     quiver.wooden_arrow = 0;
+    wallet.gold = 0;
+
 
     addToInventory("axe", 1);
     addToInventory("pick", 1);
@@ -1495,6 +1576,8 @@
     clearSlots(inv);
     clearSlots(bank);
     quiver.wooden_arrow = 0;
+    wallet.gold = 0;
+
     equipment.weapon = null;
     equipment.offhand = null;
 
@@ -1545,7 +1628,9 @@
 
     clearSlots(bank);
     quiver.wooden_arrow = 0;
+    wallet.gold = 0;
     groundLoot.clear();
+
 
     recalcMaxHPFromHealth();
     player.hp = player.maxHp;
@@ -1950,6 +2035,13 @@
             addGroundLoot(m.x, m.y, "bone", 1);
             chatLine(`<span class="warn">Inventory full: ${Items.bone.name}</span>`);
           }
+        // gold drop (stays on ground; wallet picks it up when you walk near)
+        if (Math.random() < 0.65){
+          const g = 1 + Math.floor(Math.random()*8);
+          addGroundLoot(m.x, m.y, GOLD_ITEM_ID, g);
+          chatLine(`<span class="good">The rat drops ${g} gold.</span>`);
+        }
+
         }
         stopAction();
       }
@@ -2540,6 +2632,8 @@
       zoom,
       equipment: { ...equipment },
       quiver: { ...quiver },
+      wallet: { ...wallet },
+
       groundLoot: Array.from(groundLoot.entries()).map(([k,p])=>[k, Array.from(p.entries())])
     });
   }
@@ -2590,6 +2684,12 @@
     if (data?.quiver && typeof data.quiver.wooden_arrow === "number"){
       quiver.wooden_arrow = Math.max(0, data.quiver.wooden_arrow|0);
     }
+    // Wallet
+    wallet.gold = 0;
+    if (data?.wallet && typeof data.wallet.gold === "number"){
+      wallet.gold = Math.max(0, data.wallet.gold|0);
+    }
+
 
     if (Array.isArray(data?.inv)){
       clearSlots(inv);
@@ -2602,12 +2702,15 @@
 
         const qty = Math.max(1, (s.qty|0) || 1);
 
-        // route ammo to quiver
-        if (item.ammo){
+               // route gold/ammo to wallet/quiver
+        if (id === GOLD_ITEM_ID){
+          addGold(qty);
+        } else if (item.ammo){
           addToQuiver(id, qty);
         } else {
           addToInventory(id, qty);
         }
+
       }
     }
 
@@ -2620,7 +2723,13 @@
         const item = Items[id];
         if (!item) { bank[i]=null; continue; }
         const qty = Math.max(1, (s.qty|0) || 1);
-        bank[i] = { id, qty };
+                if (id === GOLD_ITEM_ID){
+          addGold(qty);
+          bank[i] = null;
+        } else {
+          bank[i] = { id, qty };
+        }
+
       }
     }
 
