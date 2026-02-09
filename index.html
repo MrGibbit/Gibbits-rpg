@@ -39,6 +39,8 @@
         <button class="iconBtn" id="iconEqp" title="Equipment">🗡️</button>
         <button class="iconBtn" id="iconSki" title="Skills">⭐</button>
         <button class="iconBtn" id="iconBank" title="Bank">🏦</button>
+<button class="iconBtn" id="iconVendor" title="Vendor">🛒</button>
+
         <button class="iconBtn" id="iconSet" title="Settings">⚙️</button>
       </div>
 
@@ -117,12 +119,12 @@
         </div>
       </div>
     </div>
-
     <div class="window hidden" id="winBank" style="left:760px; top:70px; width:520px; height:520px;">
       <div class="winHeader" id="hdrBank">
         <div class="title">Bank <span class="pill" id="bankCount">0/56</span></div>
         <button class="winClose" data-close="bank" title="Close">✕</button>
       </div>
+
       <div class="winBody">
         <div class="btnrow">
           <button id="bankDepositAll">Deposit All</button>
@@ -136,6 +138,47 @@
           Bank stacks where allowed. Inventory only stacks ammo (but arrows are stored in quiver).
         </div>
       </div>
+    </div>
+
+    <div class="window hidden" id="winVendor" style="left:760px; top:120px; width:520px; height:520px;">
+      <div class="winHeader" id="hdrVendor">
+        <div class="title">Vendor <span class="pill" id="vendorGoldPill">Gold: 0</span></div>
+        <button class="winClose" data-close="vendor" title="Close">✕</button>
+      </div>
+
+      <div class="winBody">
+        <div class="btnrow" style="justify-content:space-between;">
+          <div class="seg">
+            <button class="segBtn active" id="vendorTabBuyBtn" type="button">Buy</button>
+            <button class="segBtn" id="vendorTabSellBtn" type="button">Sell</button>
+          </div>
+          <div class="pill" id="vendorHintPill">Stand next to the vendor to trade</div>
+        </div>
+
+        <div class="shopPane" id="vendorList"></div>
+
+        <div class="hint">
+          Buy items from the vendor, or sell your items for gold.
+        </div>
+      </div>
+    </div>
+
+    <div class="window hidden" id="winShop">
+      <div class="winHeader">
+        <div class="winTitle">Shop</div>
+        <button class="xbtn" id="btnShopClose">✕</button>
+      </div>
+
+      <div class="shopTop">
+        <div class="stat"><b>Gold:</b> <span id="shopGold">0</span></div>
+        <div class="shopTabs">
+          <button class="tabbtn active" id="shopTabBuy">Buy</button>
+          <button class="tabbtn" id="shopTabSell">Sell</button>
+        </div>
+      </div>
+
+      <div class="shopList" id="shopList"></div>
+      <div class="small muted" id="shopHint">Stock refreshes periodically.</div>
     </div>
 
     <div class="window hidden" id="winSettings" style="left:760px; top:600px; width:360px; height:300px;">
@@ -161,7 +204,7 @@
       </div>
     </div>
 
-    <!-- Chat HUD -->
+       <!-- Chat HUD -->
     <div class="hudChat" id="hudChat">
       <button class="hudChatTab" id="hudChatTab" type="button">Chat</button>
 

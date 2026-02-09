@@ -162,6 +162,18 @@
       min-width: 280px;
       min-height: 220px;
       pointer-events:auto;
+/* Shop */
+.shopTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.shopTabs{ display:flex; gap:6px; }
+.tabbtn{ padding:6px 10px; border-radius:10px; border:1px solid #2a3347; background:#0f172a; color:#cbd5e1; cursor:pointer; }
+.tabbtn.active{ background:#1f2a44; border-color:#3b4a6a; }
+.shopList{ display:flex; flex-direction:column; gap:8px; max-height:320px; overflow:auto; padding-right:6px; }
+.shopRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid #2a3347; background:#0b1220; border-radius:12px; padding:10px; }
+.shopRow .left{ display:flex; flex-direction:column; gap:2px; }
+.shopRow .name{ font-weight:700; }
+.shopRow .sub{ font-size:12px; color:#9ca3af; }
+.shopRow .right{ display:flex; align-items:center; gap:8px; }
+
     }
     .window.hidden{ display:none; }
 
@@ -303,6 +315,78 @@
       outline:2px solid rgba(94,234,212,.55);
       background:rgba(94,234,212,.14);
     }
+/* Vendor / Shop */
+.shopPane{
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 2px;
+}
+
+.shopRow{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+}
+
+.shopLeft{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.shopIcon{
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.10);
+  font-size: 18px;
+}
+
+.shopMeta{
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.shopName{
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shopSub{
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.shopActions{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.shopBtn{
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
     .segBtn:hover{ background:rgba(255,255,255,.10); }
 
     /* Equipment window */

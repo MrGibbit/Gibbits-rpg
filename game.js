@@ -189,6 +189,21 @@
 
   // ---------- Items ----------
   const GOLD_ITEM_ID = "gold"; // <-- if your gold item's id differs, change this string
+const SHOP_SELLS = [
+  { id:"sword",  price:25, stock:1 },
+  { id:"shield", price:30, stock:1 },
+  { id:"bow",    price:20, stock:1 },
+  { id:"staff",  price:20, stock:1 },
+  { id:"arrow",  price:2,  stock:20, bundle:20 } // buys 20 arrows at a time
+];
+
+const SHOP_BUYS = {
+  log:  1,
+  rock: 1,
+  ore:  3,
+  bone: 2
+};
+
 
   // ---------- Wallet (gold does not take inventory slots) ----------
   const wallet = { gold: 0 };
@@ -267,6 +282,7 @@
 
 
 
+
   function clearSlots(arr){ for (let i=0;i<arr.length;i++) arr[i]=null; }
   function countSlots(arr){ return arr.reduce((a,s)=>a+(s?1:0),0); }
   function emptyInvSlots(){
@@ -308,42 +324,20 @@
   let lastInvFullMsgAt = 0;
   let lastInvFullMsgItem = null;
 
-  // ---------- Inventory stacking behavior ----------
-  // Inventory: ONLY ammo stacks (but arrows are moved to quiver, so ammo in inv is legacy)
+    // ---------- Inventory behavior ----------
+  // Inventory: one-per-slot (no stacking). Ammo routes to quiver.
   function addToInventory(id, qty=1){
     const item = Items[id];
-    if (!item || !Number.isFinite(qty)) return 0;
-    qty = Math.floor(qty);
-    // gold: route to wallet (no inventory slots)
-    if (id === GOLD_ITEM_ID){
-      return addGold(qty);
-    }
+    if (!item) return 0;
+
+    qty = Math.max(1, qty|0);
 
     // ammo: route to quiver (no inventory slots)
     if (item.ammo){
-      if (qty <= 0) return 0;
       return addToQuiver(id, qty);
     }
 
-    // coins: stack in inventory (and allow qty=0 to "ensure stack exists")
-    if (item.currency){
-      if (qty < 0) return 0;
-      let s = inv.find(x => x && x.id === id);
-      if (!s){
-        const empty = inv.findIndex(x => !x);
-        if (empty < 0) return 0;
-        inv[empty] = { id, qty: 0 };
-        s = inv[empty];
-      }
-      if (qty > 0){
-        s.qty = (s.qty|0) + qty;
-      }
-      renderInv();
-      return Math.max(0, qty);
-    }
-
     // everything else: one-per-slot (no stacking in inventory)
-    if (qty <= 0) return 0;
     let added = 0;
     for (let i=0; i<qty; i++){
       const empty = inv.findIndex(s => !s);
@@ -355,16 +349,18 @@
     return added;
   }
 
-
   function hasItem(id){ return inv.some(s=>s && s.id===id); }
 
-    function removeItemsFromInventory(id, qty=1){
-    const item = Items[id]; if (!item) return false;
+  function removeItemsFromInventory(id, qty=1){
+    const item = Items[id];
+    if (!item) return false;
+
     qty = Math.max(1, Math.floor(qty||1));
 
+    // ammo comes from quiver
     if (item.ammo) return consumeFromQuiver(id, qty);
-    if (item.currency) return removeGold(qty);
 
+    // everything else: remove one-per-slot
     let remaining = qty;
     for (let i=0; i<inv.length && remaining>0; i++){
       if (inv[i] && inv[i].id === id){
@@ -375,6 +371,7 @@
     if (remaining !== qty) renderInv();
     return remaining === 0;
   }
+
 
 
   // ---------- Bank stacking behavior ----------
@@ -539,6 +536,20 @@
   const resources = [];
   const mobs = [];
   const interactables = [];
+const VENDOR_SELL_MULT = 0.5;
+
+const DEFAULT_VENDOR_STOCK = [
+  { id: "wooden_arrow", price: 1, bulk: [1, 10, 50] },
+  { id: "log", price: 2, bulk: [1, 5] },
+  { id: "ore", price: 3, bulk: [1, 5] },
+  { id: "bone", price: 1, bulk: [1, 5] },
+  { id: "axe", price: 25, bulk: [1] },
+  { id: "pick", price: 25, bulk: [1] },
+  { id: "basic_sword", price: 60, bulk: [1] },
+  { id: "basic_shield", price: 60, bulk: [1] },
+  { id: "basic_bow", price: 75, bulk: [1] }
+];
+
 
   function placeResource(type,x,y){ resources.push({type,x,y,alive:true,respawnAt:0}); }
   function placeMob(type,x,y){ mobs.push({type,x,y,hp:12,maxHp:12,alive:true,respawnAt:0}); }
@@ -563,6 +574,10 @@
     const bx = startCastle.x0 + 4;
     const by = startCastle.y0 + 3;
     placeInteractable("bank", bx, by);
+placeInteractable("vendor", bx + 2, by);
+placeInteractable("shop", 9, 13); // shopkeeper near starter area
+
+
   }
 
   // ---------- Character / class ----------
@@ -689,15 +704,193 @@
   const winEquipment = document.getElementById("winEquipment");
   const winSkills    = document.getElementById("winSkills");
   const winBank      = document.getElementById("winBank");
+const winVendor  = document.getElementById("winVendor");
+
   const winSettings  = document.getElementById("winSettings");
 
   const iconInv  = document.getElementById("iconInv");
   const iconEqp  = document.getElementById("iconEqp");
   const iconSki  = document.getElementById("iconSki");
   const iconBank = document.getElementById("iconBank");
+const iconVendor = document.getElementById("iconVendor");
+
   const iconSet  = document.getElementById("iconSet");
+const winShop = document.getElementById("winShop");
+const shopGoldEl = document.getElementById("shopGold");
+const shopListEl = document.getElementById("shopList");
+const btnShopClose = document.getElementById("btnShopClose");
+const shopTabBuyBtn = document.getElementById("shopTabBuy");
+const shopTabSellBtn = document.getElementById("shopTabSell");
+
+let shopTab = "buy";
+const SHOP_REFRESH_MS = 5*60*1000;
+let shopNextRefreshAt = 0;
+let shopStock = {};
+
 
   let bankAvailable = false;
+let vendorAvailable = false;
+let vendorInRangeIndex = -1;
+let vendorTab = "buy";
+// ---------- Vendor UI ----------
+const vendorGoldPill = document.getElementById("vendorGoldPill");
+const vendorListEl = document.getElementById("vendorList");
+const vendorTabBuyBtn = document.getElementById("vendorTabBuyBtn");
+const vendorTabSellBtn = document.getElementById("vendorTabSellBtn");
+
+function vendorBuyPrice(id){
+  const row = DEFAULT_VENDOR_STOCK.find(x => x.id === id);
+  return row ? (row.price|0) : null;
+}
+function vendorSellPrice(id){
+  const p = vendorBuyPrice(id);
+  if (p == null) return null;
+  return Math.max(1, Math.floor(p * VENDOR_SELL_MULT));
+}
+
+function renderVendorUI(){
+  if (!vendorListEl) return;
+
+  if (vendorGoldPill) vendorGoldPill.textContent = `Gold: ${getGold()}`;
+
+  // tab button styles
+  if (vendorTabBuyBtn) vendorTabBuyBtn.classList.toggle("active", vendorTab === "buy");
+  if (vendorTabSellBtn) vendorTabSellBtn.classList.toggle("active", vendorTab === "sell");
+
+  vendorListEl.innerHTML = "";
+
+  if (vendorTab === "buy"){
+    for (const row of DEFAULT_VENDOR_STOCK){
+      const it = Items[row.id];
+      if (!it) continue;
+
+      const line = document.createElement("div");
+      line.className = "shopRow";
+      line.innerHTML = `
+        <div class="shopLeft">
+          <div class="shopIcon">${it.icon ?? "❔"}</div>
+          <div class="shopMeta">
+            <div class="shopName">${it.name ?? row.id}</div>
+            <div class="shopSub">Price: ${row.price} gold</div>
+          </div>
+        </div>
+        <div class="shopActions"></div>
+      `;
+
+      const actions = line.querySelector(".shopActions");
+      const bulks = Array.isArray(row.bulk) && row.bulk.length ? row.bulk : [1];
+
+      for (const qty of bulks){
+        const btn = document.createElement("button");
+        btn.className = "shopBtn";
+        btn.textContent = `Buy x${qty}`;
+        btn.onclick = () => {
+          const cost = (row.price|0) * (qty|0);
+          if (!spendGold(cost)){
+            chatLine(`<span class="warn">Not enough gold.</span>`);
+            return;
+          }
+
+          // ammo routes to quiver; others go to inventory
+          const added = addToInventory(row.id, qty);
+          if (added <= 0){
+            // refund if nothing could be added
+            addGold(cost);
+            chatLine(`<span class="warn">Inventory full.</span>`);
+            return;
+          }
+
+          chatLine(`<span class="good">Bought ${qty}x ${it.name}.</span>`);
+          renderVendorUI();
+          renderInv();
+          renderQuiver();
+        };
+        actions.appendChild(btn);
+      }
+
+      vendorListEl.appendChild(line);
+    }
+    return;
+  }
+
+  // SELL tab: show unique sellable items currently in inventory (one-per-slot items can be sold per click)
+  const seen = new Map(); // id -> count
+  for (const s of inv){
+    if (!s) continue;
+    const id = s.id;
+    if (!Items[id]) continue;
+    seen.set(id, (seen.get(id)|0) + 1);
+  }
+
+  for (const [id, count] of seen.entries()){
+    const it = Items[id];
+    const price = vendorSellPrice(id);
+    if (price == null) continue; // vendor doesn't buy it
+
+    const line = document.createElement("div");
+    line.className = "shopRow";
+    line.innerHTML = `
+      <div class="shopLeft">
+        <div class="shopIcon">${it.icon ?? "❔"}</div>
+        <div class="shopMeta">
+          <div class="shopName">${it.name ?? id} ${count>1 ? `x${count}` : ""}</div>
+          <div class="shopSub">Sell: ${price} gold</div>
+        </div>
+      </div>
+      <div class="shopActions"></div>
+    `;
+
+    const actions = line.querySelector(".shopActions");
+
+    const btn1 = document.createElement("button");
+    btn1.className = "shopBtn";
+    btn1.textContent = "Sell x1";
+    btn1.onclick = () => {
+      if (!removeItemsFromInventory(id, 1)){
+        chatLine(`<span class="warn">You don't have that.</span>`);
+        return;
+      }
+      addGold(price);
+      chatLine(`<span class="good">Sold 1x ${it.name}.</span>`);
+      renderVendorUI();
+      renderInv();
+      renderQuiver();
+    };
+    actions.appendChild(btn1);
+
+    if (count > 1){
+      const btnAll = document.createElement("button");
+      btnAll.className = "shopBtn";
+      btnAll.textContent = "Sell all";
+      btnAll.onclick = () => {
+        let sold = 0;
+        for (let i=0; i<count; i++){
+          if (!removeItemsFromInventory(id, 1)) break;
+          sold++;
+        }
+        if (sold){
+          addGold(price * sold);
+          chatLine(`<span class="good">Sold ${sold}x ${it.name}.</span>`);
+        }
+        renderVendorUI();
+        renderInv();
+        renderQuiver();
+      };
+      actions.appendChild(btnAll);
+    }
+
+    vendorListEl.appendChild(line);
+  }
+
+  if (!vendorListEl.childElementCount){
+    vendorListEl.innerHTML = `<div class="hint">You have nothing the vendor will buy.</div>`;
+  }
+}
+
+if (vendorTabBuyBtn) vendorTabBuyBtn.addEventListener("click", ()=>{ vendorTab="buy"; renderVendorUI(); });
+if (vendorTabSellBtn) vendorTabSellBtn.addEventListener("click", ()=>{ vendorTab="sell"; renderVendorUI(); });
+
+
 
   // Open state: inventory + equipment can be open simultaneously.
   const windowsOpen = {
@@ -705,7 +898,10 @@
     equipment: false,
     skills: false,
     bank: false,
-    settings: false
+    settings: false,
+    vendor: false,
+shop:false,
+
   };
 
   function applyWindowVis(){
@@ -713,6 +909,8 @@
     winEquipment.classList.toggle("hidden", !windowsOpen.equipment);
     winSkills.classList.toggle("hidden", !windowsOpen.skills);
     winBank.classList.toggle("hidden", !windowsOpen.bank);
+    winVendor.classList.toggle("hidden", !windowsOpen.vendor);
+
     winSettings.classList.toggle("hidden", !windowsOpen.settings);
 
     iconInv.classList.toggle("active", windowsOpen.inventory);
@@ -720,11 +918,15 @@
     iconSki.classList.toggle("active", windowsOpen.skills);
     iconSet.classList.toggle("active", windowsOpen.settings);
     iconBank.classList.toggle("active", windowsOpen.bank);
+if (iconVendor) iconVendor.classList.toggle("active", windowsOpen.vendor);
+if (winVendor) winVendor.classList.toggle("hidden", !windowsOpen.vendor);
+
+
   }
 
   function closeExclusive(exceptName){
     // Skills / Bank / Settings are exclusive *between themselves*, but do not close inventory/equipment.
-    for (const k of ["skills","bank","settings"]){
+    for (const k of ["skills","bank","vendor","settings"]){
       if (k !== exceptName) windowsOpen[k] = false;
     }
   }
@@ -754,6 +956,11 @@
 
   function toggleWindow(name){
     if (name === "bank" && !bankAvailable) return;
+  if (name === "vendor" && !vendorAvailable) {
+    chatLine(`<span class="muted">You need to be next to the vendor to trade.</span>`);
+    return;
+  }
+
 
     const isOpen = !!windowsOpen[name];
     if (isOpen){
@@ -768,6 +975,8 @@
   iconSki.addEventListener("click", () => toggleWindow("skills"));
   iconSet.addEventListener("click", () => toggleWindow("settings"));
   iconBank.addEventListener("click", () => toggleWindow("bank"));
+iconVendor.addEventListener("click", () => toggleWindow("vendor"));
+
 
   function updateBankIcon(){
     if (bankAvailable){
@@ -783,6 +992,20 @@
       }
     }
   }
+function updateVendorIcon(){
+  if (vendorAvailable){
+    iconVendor.classList.remove("disabled");
+    iconVendor.style.display = "";
+  } else {
+    iconVendor.classList.add("disabled");
+    iconVendor.style.display = "none";
+    if (windowsOpen.vendor){
+      windowsOpen.vendor = false;
+      applyWindowVis();
+      saveWindowsUI();
+    }
+  }
+}
 
   // Close buttons
   document.body.addEventListener("click", (e) => {
@@ -834,6 +1057,8 @@
   makeWindowDraggable(winSkills, document.getElementById("hdrSkills"));
   makeWindowDraggable(winBank, document.getElementById("hdrBank"));
   makeWindowDraggable(winSettings, document.getElementById("hdrSettings"));
+makeWindowDraggable(winVendor, document.getElementById("hdrVendor"));
+
 
   function getWindowRect(winEl){
     return {
@@ -1137,6 +1362,8 @@
     applyChatUI();
     saveChatUI();
     updateBankIcon();
+updateVendorIcon();
+
   });
 
   // ---------- Context menu ----------
@@ -1674,23 +1901,29 @@
   };
 
   // ---------- Entity lookup ----------
-  function getEntityAt(tileX,tileY){
-    const interIndex = interactables.findIndex(it => it.x===tileX && it.y===tileY);
-    if (interIndex>=0){
-      const it = interactables[interIndex];
-      if (it.type==="bank") return { kind:"bank", index: interIndex, label:"Bank Chest" };
-    }
-
-    const mobIndex = mobs.findIndex(m => m.alive && m.x===tileX && m.y===tileY);
-    if (mobIndex>=0) return { kind:"mob", index: mobIndex, label:"Rat" };
-
-    const resIndex = resources.findIndex(r => r.alive && r.x===tileX && r.y===tileY);
-    if (resIndex>=0){
-      const r=resources[resIndex];
-      return { kind:"res", index: resIndex, label: r.type==="tree" ? "Tree" : "Rock" };
-    }
-    return null;
+ function getEntityAt(tx, ty){
+  // Interactables
+  const idx = interactables.findIndex(it => it.x===tx && it.y===ty);
+  if (idx !== -1){
+    const it = interactables[idx];
+    if (it.type === "bank")   return { kind:"bank", index: idx, label:"Bank Chest", x:it.x, y:it.y };
+    if (it.type === "vendor") return { kind:"vendor", index: idx, label:"Vendor", x:it.x, y:it.y };
+    if (it.type === "shop")   return { kind:"shop", index: idx, label:"Shopkeeper", x:it.x, y:it.y };
   }
+
+  // Mobs
+  const mobIndex = mobs.findIndex(m => m.alive && m.x===tx && m.y===ty);
+  if (mobIndex>=0) return { kind:"mob", index: mobIndex, label:"Rat" };
+
+  // Resources
+  const resIndex = resources.findIndex(r => r.alive && r.x===tx && r.y===ty);
+  if (resIndex>=0){
+    const r=resources[resIndex];
+    return { kind:"res", index: resIndex, label: r.type==="tree" ? "Tree" : "Rock" };
+  }
+
+  return null;
+}
 
   function examineEntity(ent){
     if (!ent) return;
@@ -1880,7 +2113,32 @@
         adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
         setPathTo(adj[0].x, adj[0].y);
         return;
+if (t.kind==="vendor"){
+  const v = interactables[t.index];
+  if (!v) return stopAction();
+
+  if (!inRangeOfTile(v.x, v.y, 1.1)){
+    const adj = [[1,0],[-1,0],[0,1],[0,-1]]
+      .map(([dx,dy])=>({x:v.x+dx,y:v.y+dy}))
+      .filter(p=>isWalkable(p.x,p.y));
+    if (!adj.length) return stopAction("No path to vendor.");
+    adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
+    setPathTo(adj[0].x, adj[0].y);
+    return;
+  }
       }
+
+
+  if (player.action.type!=="idle") return;
+
+  chatLine(`<span class="muted">You start trading with the vendor.</span>`);
+  openWindow("vendor");
+  renderVendorUI();
+
+  stopAction();
+  return;
+}
+
       if (player.action.type!=="idle") return;
 
       chatLine(`<span class="muted">You open the bank chest.</span>`);
@@ -2333,6 +2591,22 @@
     for (const it of interactables){
       if (it.x<startX-1 || it.x>endX+1 || it.y<startY-1 || it.y>endY+1) continue;
       if (it.type==="bank") drawBankChest(it.x,it.y);
+
+
+if(it.type === "shop"){
+  // simple vendor marker
+  ctx.save();
+  ctx.translate((it.x - camera.x)*TILE + TILE/2, (it.y - camera.y)*TILE + TILE/2);
+  ctx.beginPath();
+  ctx.arc(0, 0, TILE*0.28, 0, Math.PI*2);
+  ctx.fillStyle = "#7c3aed";
+  ctx.fill();
+  ctx.fillStyle = "#111827";
+  ctx.font = "12px sans-serif";
+  ctx.fillText("$", -4, 4);
+  ctx.restore();
+}
+
     }
   }
 
@@ -2615,6 +2889,12 @@
       opts.push({label:"Examine Bank Chest", onClick:()=>examineEntity(ent)});
       opts.push({type:"sep"});
       opts.push({label:"Walk here", onClick:walkHere});
+} else if (ent?.kind==="vendor"){
+  opts.push({label:"Trade", onClick:()=>beginInteraction(ent)});
+  opts.push({label:"Examine Vendor", onClick:()=>chatLine(`<span class="muted">A traveling vendor. Buys and sells goods.</span>`)});
+  opts.push({type:"sep"});
+  opts.push({label:"Walk here", onClick:walkHere});
+
     } else {
       if (isWalkable(tx,ty)) opts.push({label:"Walk here", onClick:walkHere});
       else opts.push({label:"Nothing interesting", onClick:()=>chatLine(`<span class="muted">You can't walk there.</span>`)});
@@ -2798,6 +3078,22 @@
       bankAvailable = false;
     }
     updateBankIcon();
+// vendor availability
+const vendorIndex = interactables.findIndex(o => o.type === "vendor");
+vendorAvailable = false;
+vendorInRangeIndex = -1;
+
+if (vendorIndex >= 0){
+  const v = interactables[vendorIndex];
+  vendorAvailable = inRangeOfTile(v.x, v.y, 1.1);
+  vendorInRangeIndex = vendorAvailable ? vendorIndex : -1;
+}
+
+updateVendorIcon();
+if (windowsOpen.vendor && !vendorAvailable){
+  closeWindow("vendor");
+}
+
 
     // action completion
     if (player.action.type!=="idle" && t>=player.action.endsAt){
