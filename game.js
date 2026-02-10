@@ -603,6 +603,8 @@ placeInteractable("shop", 9, 13); // shopkeeper near starter area
   const CHAR_KEY = "classic_char_v3";
   const CHAT_UI_KEY = "classic_chat_ui_v1";
   const WINDOWS_UI_KEY = "classic_windows_ui_v2_multi_open";
+const BGM_KEY = "classic_bgm_v1";
+
 
   const CLASS_DEFS = {
     Warrior: { color: "#ef4444" },
@@ -3234,6 +3236,80 @@ if (it.type === "shop"){
     chatLine(`<span class="warn">Save cleared. Choose a character to start fresh.</span>`);
     openCharCreate(true);
   };
+  // ---------- Background Music ----------
+  const bgm = document.getElementById("bgm");
+  const musicToggle = document.getElementById("musicToggle");
+  const musicVol = document.getElementById("musicVol");
+  const musicVolLabel = document.getElementById("musicVolLabel");
+
+  const bgmState = (() => {
+    const d = { on:false, vol:0.25 };
+    try{
+      const raw = localStorage.getItem(BGM_KEY);
+      if (!raw) return d;
+      const s = JSON.parse(raw);
+      if (typeof s.on === "boolean") d.on = s.on;
+      if (typeof s.vol === "number") d.vol = clamp(s.vol, 0, 1);
+    }catch{}
+    return d;
+  })();
+
+  function saveBgmState(){
+    try{ localStorage.setItem(BGM_KEY, JSON.stringify(bgmState)); }catch{}
+  }
+
+  function updateBgmUI(){
+    if (musicToggle) musicToggle.checked = !!bgmState.on;
+    if (musicVol) musicVol.value = String(Math.round(bgmState.vol * 100));
+    if (musicVolLabel) musicVolLabel.textContent = `${Math.round(bgmState.vol * 100)}%`;
+  }
+
+  function tryPlayBgm(){
+    if (!bgm || !bgmState.on) return;
+    bgm.volume = clamp(bgmState.vol, 0, 1);
+    const p = bgm.play();
+    if (p && typeof p.catch === "function") p.catch(()=>{});
+  }
+
+  function applyBgm(){
+    if (!bgm) return;
+    bgm.volume = clamp(bgmState.vol, 0, 1);
+    if (bgmState.on) tryPlayBgm();
+    else bgm.pause();
+  }
+
+  updateBgmUI();
+  applyBgm();
+
+  if (musicToggle){
+    musicToggle.addEventListener("change", () => {
+      bgmState.on = musicToggle.checked;
+      saveBgmState();
+      applyBgm(); // the click counts as a user gesture (helps autoplay rules)
+    });
+  }
+
+  if (musicVol){
+    musicVol.addEventListener("input", () => {
+      bgmState.vol = clamp((musicVol.value|0)/100, 0, 1);
+      saveBgmState();
+      if (musicVolLabel) musicVolLabel.textContent = `${Math.round(bgmState.vol * 100)}%`;
+      if (bgm) bgm.volume = bgmState.vol;
+      if (bgmState.on) tryPlayBgm();
+    });
+  }
+
+  // If music was enabled previously, start it on the first user action (browser autoplay rules)
+  function unlockBgmOnce(){ tryPlayBgm(); }
+  window.addEventListener("pointerdown", unlockBgmOnce, { once:true });
+  window.addEventListener("keydown", unlockBgmOnce, { once:true });
+
+  // Optional: pause when tab is hidden, resume when visible
+  document.addEventListener("visibilitychange", () => {
+    if (!bgm) return;
+    if (document.hidden) bgm.pause();
+    else if (bgmState.on) tryPlayBgm();
+  });
 
   // ---------- Loop ----------
   let last=now();

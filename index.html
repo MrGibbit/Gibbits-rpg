@@ -197,6 +197,17 @@
           <button id="newCharBtn">New Character</button>
           <button id="deleteCharBtn">Delete Character</button>
         </div>
+<div class="small" style="margin-top:6px;">Audio</div>
+
+<div class="settingRow">
+  <label class="chk">
+    <input type="checkbox" id="musicToggle">
+    Music
+  </label>
+
+  <input id="musicVol" type="range" min="0" max="100" step="1" value="25" />
+  <span class="pill" id="musicVolLabel">25%</span>
+</div>
 
         <div class="hint">
           Mouse wheel: scroll down zooms out, scroll up zooms in. Minimap click moves.
@@ -279,6 +290,7 @@
 
   </div>
 </div>
+<audio id="bgm" src="assets/bgm.mp3" loop preload="auto"></audio>
 
 <script src="game.js"></script>
 
