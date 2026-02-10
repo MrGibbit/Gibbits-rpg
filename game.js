@@ -1547,29 +1547,46 @@ updateVendorIcon();
       return true;
     }
 // Flint and steel + log => light fire under player, step south
+// Flint and steel + log => light fire under player, then step south (RS-style)
 if (toolId === "flint_steel" && targetId === "log") {
-  // can't light if a fire is already here
-  if (interactables.some(it => it.type==="fire" && it.x===player.x && it.y===player.y)) {
-    chatLine(`<span class="warn">There's already a fire here.</span>`);
+  if (player.action.type !== "idle"){
+    chatLine(`<span class="warn">You're busy.</span>`);
     return true;
   }
 
+  // Must be standing on an empty tile (no bank/vendor/mob/resource/fire)
+  if (getEntityAt(player.x, player.y)){
+    chatLine(`<span class="warn">That space is occupied.</span>`);
+    return true;
+  }
+
+  // lock player in place while lighting
+  player.path = [];
+  syncPlayerPix();
+
   startTimedAction("firemake", 1.2, "Lighting fire…", () => {
+    // Re-check tile (something could have spawned / moved here)
+    if (getEntityAt(player.x, player.y)){
+      chatLine(`<span class="warn">That space is occupied.</span>`);
+      return;
+    }
+
     // consume 1 log
     if (!removeItemsFromInventory("log", 1)) {
       chatLine(`<span class="warn">You need a log.</span>`);
       return;
     }
 
+    const born = now();
     interactables.push({
       type: "fire",
       x: player.x,
       y: player.y,
-      createdAt: now(),
-      expiresAt: now() + 45000
+      createdAt: born,
+      expiresAt: born + 60000
     });
 
-    addXP?.("firemaking", 10);
+    addXP("firemaking", 10);
     chatLine(`<span class="good">You light a fire.</span>`);
 
     // step south (y+1) if possible
@@ -1671,9 +1688,14 @@ if (toolId === "flint_steel" && targetId === "log") {
         setUseState(null);
         return;
       }
-      tryItemOnItem(toolId, targetId, idx);
-      setUseState(null);
-      return;
+      const handled = tryItemOnItem(toolId, targetId, idx);
+
+// QoL: keep certain tools "sticky" so you can repeat actions (e.g., light multiple logs)
+const sticky = (toolId === "flint_steel" || toolId === "knife");
+if (!handled || !sticky) setUseState(null);
+
+return;
+
     }
   });
 
@@ -2006,39 +2028,16 @@ if (toolId === "flint_steel" && targetId === "log") {
     ensureWalkIntoRangeAndAct();
   }
 
-  // ---------- Interaction helpers ----------
-    function clickToInteract(tileX,tileY){
-    // If player has selected a "Use" item from inventory, world clicks can become actions.
-    if (activeUseItemId === "flint_steel"){
-      closeCtxMenu();
+   // ---------- Interaction helpers ----------
+  function clickToInteract(tileX,tileY){
+    // RS-style: Firemaking is inventory-driven (Use Flint & Steel on a Log in inventory).
+    // World clicks do not place fires directly.
 
-      // Must be a walkable tile (no water/walls)
-      if (!isWalkable(tileX, tileY)){
-        chatLine(`<span class="warn">You can't light a fire there.</span>`);
-        setUseState(null);
-        return;
-      }
-
-      // Can't light on top of an entity/resource/mob
-      const ent = getEntityAt(tileX, tileY);
-      if (ent){
-        chatLine(`<span class="warn">That space is occupied.</span>`);
-        setUseState(null);
-        return;
-      }
-
-      // Target becomes "firemake" at that tile; movement + range handled by ensureWalkIntoRangeAndAct()
-      player.action = { type:"idle", endsAt:0, total:0, label:"Idle", onComplete:null };
-      player.target = { kind:"firemake", x: tileX, y: tileY };
-      ensureWalkIntoRangeAndAct();
-      return;
-    }
-
-    const ent=getEntityAt(tileX,tileY);
+    const ent = getEntityAt(tileX,tileY);
     if (ent){ beginInteraction(ent); return; }
 
-    player.target=null;
-    player.action={type:"idle", endsAt:0, total:0, label:"Idle", onComplete:null};
+    player.target = null;
+    player.action = {type:"idle", endsAt:0, total:0, label:"Idle", onComplete:null};
     setPathTo(tileX,tileY);
   }
 
@@ -2221,55 +2220,7 @@ function ensureWalkIntoRangeAndAct(){
     stopAction();
     return;
   }
-  if (t.kind==="firemake"){
-    const fx = t.x|0, fy = t.y|0;
-
-    // Walk next to the target tile first
-    if (!inRangeOfTile(fx, fy, 1.1)){
-      const adj = [[1,0],[-1,0],[0,1],[0,-1]]
-        .map(([dx,dy])=>({x:fx+dx,y:fy+dy}))
-        .filter(p=>isWalkable(p.x,p.y));
-      if (!adj.length){
-        setUseState(null);
-        return stopAction("No path to that tile.");
-      }
-      adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
-      setPathTo(adj[0].x, adj[0].y);
-      return;
-    }
-
-    if (player.action.type!=="idle") return;
-
-    // Must have a log in inventory
-    if (!removeItemsFromInventory("log", 1)){
-      chatLine(`<span class="warn">You need a log in your inventory.</span>`);
-      setUseState(null);
-      stopAction();
-      player.target = null;
-      return;
-    }
-
-    // Tile must still be valid and empty at time of lighting
-    if (!isWalkable(fx, fy) || getEntityAt(fx, fy)){
-      chatLine(`<span class="warn">You can't light a fire there.</span>`);
-      setUseState(null);
-      stopAction();
-      player.target = null;
-      return;
-    }
-
-    // Create campfire (expires in ~60s)
-    interactables.push({ type:"fire", x:fx, y:fy, expiresAt: now() + 60000 });
-
-    chatLine(`<span class="good">You light a campfire.</span>`);
-    setUseState(null);
-    stopAction();
-    player.target = null;
-    return;
-  }
-
-
-  // ---------- VENDOR (TRADE) ----------
+   // ---------- VENDOR (TRADE) ----------
   if (t.kind === "vendor"){
 
     const v = interactables[t.index];
@@ -2741,26 +2692,72 @@ if (item.ammo){
       if (it.type==="bank") drawBankChest(it.x,it.y);
 
       if (it.type==="fire"){
-        const cx = it.x * TILE + TILE/2;
-        const cy = it.y * TILE + TILE/2;
+  const cx = it.x * TILE + TILE/2;
+  const cy = it.y * TILE + TILE/2;
 
-        ctx.save();
-        ctx.translate(cx, cy);
+  const t = now();
+  const born = (it.createdAt ?? (it.createdAt = t));
+  const expires = (it.expiresAt ?? (it.expiresAt = born + 60000));
+  const age = t - born;
 
-        // simple flame marker
-        ctx.beginPath();
-        ctx.arc(0, 0, 10, 0, Math.PI*2);
-        ctx.fillStyle = "rgba(251,191,36,.95)";
-        ctx.fill();
+  // fade out during the last ~4 seconds
+  const fade = clamp((expires - t) / 4000, 0, 1);
 
-        ctx.fillStyle = "rgba(17,24,39,.95)";
-        ctx.font = "12px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("🔥", 0, 1);
+  ctx.save();
+  ctx.translate(cx, cy);
 
-        ctx.restore();
-      }
+  // soft ground glow (animated)
+  const flick = 0.90 + 0.10*Math.sin(age*0.018) + 0.06*Math.sin(age*0.041);
+  const glowR = 10 + 5*flick;
+
+  const g = ctx.createRadialGradient(0, 7, 1, 0, 7, glowR*2.3);
+  g.addColorStop(0, `rgba(251,191,36,${0.55*fade})`);
+  g.addColorStop(0.35, `rgba(249,115,22,${0.30*fade})`);
+  g.addColorStop(1, `rgba(0,0,0,0)`);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0, 7, glowR*2.3, 0, Math.PI*2);
+  ctx.fill();
+
+  // ember base
+  ctx.fillStyle = `rgba(17,24,39,${0.45*fade})`;
+  ctx.beginPath();
+  ctx.ellipse(0, 9, 11, 4, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // flame body (stacked blobs, flicker + sway)
+  const sway = Math.sin(age*0.010) * 1.6;
+
+  // outer flame
+  ctx.fillStyle = `rgba(249,115,22,${0.85*fade})`;
+  ctx.beginPath();
+  ctx.ellipse(sway*0.7, 2, 7, 9, 0, 0, Math.PI*2);
+  ctx.ellipse(sway*0.9, -4, 5.5, 7.5, 0, 0, Math.PI*2);
+  ctx.ellipse(sway*1.2, -10, 4.0, 6.0, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // inner flame
+  ctx.fillStyle = `rgba(251,191,36,${0.90*fade})`;
+  ctx.beginPath();
+  ctx.ellipse(sway*0.6, 1, 4.8, 6.8, 0, 0, Math.PI*2);
+  ctx.ellipse(sway*0.8, -6, 3.6, 5.2, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // a couple tiny sparks
+  for (let i=0; i<3; i++){
+    const phase = age*0.006 + i*2.2;
+    const px = Math.sin(phase) * 7;
+    const py = -8 - ((age*0.03 + i*9) % 14);
+    const a = fade * (0.35 + 0.25*Math.sin(phase*1.7));
+    ctx.fillStyle = `rgba(253,230,138,${clamp(a,0,1)})`;
+    ctx.beginPath();
+    ctx.arc(px, py, 1.2, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
 
 if (it.type === "vendor"){
   // vendor marker (draw in WORLD coords; camera/zoom already handled by ctx transform)
