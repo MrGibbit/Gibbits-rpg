@@ -176,12 +176,14 @@
     woodcutting:{ name:"Woodcut", xp:0 },
     mining:{ name:"Mining", xp:0 },
 firemaking:{ name:"Firemaking", xp:0 },
+    cooking:{ name:"Cooking", xp:0 },
+
 
   };
   const SKILL_ICONS = {
     accuracy:"🎯", power:"💪", defense:"🛡️", ranged:"🏹", sorcery:"✨", fletching:"🪶", health:"❤️",
-    woodcutting:"🪵", firemaking:"🔥",
-mining:"⛏️"
+    woodcutting:"🪵", firemaking:"🔥", cooking:"🍳", mining:"⛏️"
+
   };
 
   const lastSkillLevel = Object.create(null);
@@ -242,6 +244,54 @@ mining:"⛏️"
     log:  { id:"log",  name:"Log",  stack:true, icon:"🪵" },
     ore:  { id:"ore",  name:"Ore",  stack:true, icon:"🪨" },
     bone: { id:"bone", name:"Bone", stack:true, icon:"🦴" },
+    rat_meat: {
+      id:"rat_meat",
+      name:"Raw Rat Meat",
+      stack:true,
+      icon:`<svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" aria-hidden="true" focusable="false" style="display:block">
+        <rect x="4" y="4" width="8" height="1" fill="rgb(54,24,29)"/>
+        <rect x="3" y="5" width="1" height="6" fill="rgb(54,24,29)"/>
+        <rect x="12" y="5" width="1" height="6" fill="rgb(54,24,29)"/>
+        <rect x="4" y="11" width="8" height="1" fill="rgb(54,24,29)"/>
+
+        <rect x="4" y="5" width="8" height="6" fill="rgb(176,56,72)"/>
+        <rect x="5" y="6" width="6" height="4" fill="rgb(206,88,96)"/>
+
+        <rect x="6" y="7" width="1" height="1" fill="rgb(245,214,219)"/>
+        <rect x="7" y="8" width="2" height="1" fill="rgb(245,214,219)"/>
+        <rect x="9" y="6" width="1" height="1" fill="rgb(245,214,219)"/>
+
+        <rect x="5" y="10" width="2" height="1" fill="rgb(122,34,48)"/>
+        <rect x="8" y="5" width="2" height="1" fill="rgb(122,34,48)"/>
+      </svg>`
+    },
+    cooked_rat_meat: {
+      id:"cooked_rat_meat",
+      name:"Cooked Rat Meat",
+      stack:true,
+      icon:`<svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" aria-hidden="true" focusable="false" style="display:block">
+        <!-- outline -->
+        <rect x="4" y="4" width="8" height="1" fill="rgb(40,22,16)"/>
+        <rect x="3" y="5" width="1" height="6" fill="rgb(40,22,16)"/>
+        <rect x="12" y="5" width="1" height="6" fill="rgb(40,22,16)"/>
+        <rect x="4" y="11" width="8" height="1" fill="rgb(40,22,16)"/>
+
+        <!-- cooked base -->
+        <rect x="4" y="5" width="8" height="6" fill="rgb(140,72,34)"/>
+        <rect x="5" y="6" width="6" height="4" fill="rgb(176,96,44)"/>
+
+        <!-- grill marks -->
+        <rect x="6" y="6" width="1" height="4" fill="rgb(84,42,20)"/>
+        <rect x="8" y="6" width="1" height="4" fill="rgb(84,42,20)"/>
+        <rect x="10" y="6" width="1" height="4" fill="rgb(84,42,20)"/>
+
+        <!-- tiny steam pips -->
+        <rect x="6" y="3" width="1" height="1" fill="rgb(226,232,240)"/>
+        <rect x="9" y="3" width="1" height="1" fill="rgb(226,232,240)"/>
+      </svg>`
+    },
+
+
   };
 
   const inv = Array.from({length: MAX_INV}, () => null);
@@ -541,6 +591,60 @@ mining:"⛏️"
   const resources = [];
   const mobs = [];
   const interactables = [];
+// ---------- Persistent world seed ----------
+const WORLD_SEED_KEY = "classic_world_seed_v1";
+let worldSeed = 1337; // pick any integer you want as the "default world"
+
+function initWorldSeed(){
+  try{
+    const raw = localStorage.getItem(WORLD_SEED_KEY);
+    const n = raw == null ? NaN : parseInt(raw, 10);
+
+    if (Number.isFinite(n) && n > 0){
+      worldSeed = (n >>> 0);
+      return;
+    }
+
+    // First run (or invalid): lock in the default seed above
+    worldSeed = (worldSeed >>> 0);
+    localStorage.setItem(WORLD_SEED_KEY, String(worldSeed));
+  }catch{
+    // If localStorage is blocked, we still keep a stable default seed
+    worldSeed = (worldSeed >>> 0);
+  }
+}
+// ---------- Seeded RNG + placement helpers ----------
+function makeRng(seed){
+  let t = (seed >>> 0) || 0x12345678;
+  return function(){
+    // xorshift32
+    t ^= (t << 13); t >>>= 0;
+    t ^= (t >>> 17); t >>>= 0;
+    t ^= (t << 5);  t >>>= 0;
+    return (t >>> 0) / 4294967296;
+  };
+}
+function randInt(rng, a, b){ return a + Math.floor(rng() * (b - a + 1)); }
+function keyXY(x,y){ return `${x},${y}`; }
+
+function inRectMargin(x,y, rect, margin){
+  return (
+    x >= rect.x0 - margin && x <= (rect.x0 + rect.w - 1) + margin &&
+    y >= rect.y0 - margin && y <= (rect.y0 + rect.h - 1) + margin
+  );
+}
+function nearTileType(x,y, tileVal, radius){
+  for (let dy=-radius; dy<=radius; dy++){
+    for (let dx=-radius; dx<=radius; dx++){
+      const nx = x + dx, ny = y + dy;
+      if (!inBounds(nx,ny)) continue;
+      if (map[ny][nx] === tileVal) return true;
+    }
+  }
+  return false;
+}
+
+
 const VENDOR_SELL_MULT = 0.5;
 
 const DEFAULT_VENDOR_STOCK = [
@@ -561,20 +665,330 @@ const DEFAULT_VENDOR_STOCK = [
   function placeMob(type,x,y){ mobs.push({type,x,y,hp:12,maxHp:12,alive:true,respawnAt:0}); }
   function placeInteractable(type,x,y){ interactables.push({type,x,y}); }
 
-  function seedResources(){
-    resources.length=0;
-    [[26,8],[27,9],[28,10],[29,11],[32,7],[33,8],[34,9],[38,10],[39,11],[40,12]]
-      .forEach(([x,y])=> isWalkable(x,y) && placeResource("tree",x,y));
-    [[4,32],[5,33],[6,34],[8,35],[9,36],[14,33],[15,34],[16,35]]
-      .forEach(([x,y])=> isWalkable(x,y) && placeResource("tree",x,y));
-    [[20,16],[21,16],[22,17],[19,20],[20,21],[30,28],[31,28],[32,29],[48,26],[49,26],[50,27]]
-      .forEach(([x,y])=> isWalkable(x,y) && placeResource("rock",x,y));
+ function seedResources(){
+  resources.length = 0;
+
+  // Deterministic per worldSeed (persistent world)
+  const rng = makeRng(worldSeed ^ 0xA53C9E27);
+  const used = new Set();
+
+  // Tiles to keep clear (because interactables are placed after resources)
+  const reserved = new Set([
+    keyXY(startCastle.x0 + 4, startCastle.y0 + 3),     // bank
+    keyXY(startCastle.x0 + 6, startCastle.y0 + 3),     // vendor in castle
+    keyXY(9, 13),                                      // vendor near starter area
+    keyXY(startCastle.x0 + 6, startCastle.y0 + 4),     // player spawn-ish
+  ]);
+
+  function tileOkForResource(x,y){
+    if (!inBounds(x,y)) return false;
+
+    // Resources only on grass
+    if (map[y][x] !== 0) return false;
+
+    // Keep paths readable (no hugging paths)
+    if (nearTileType(x,y, 5, 1)) return false;
+
+    // Keep castles/keeps clean
+    if (inRectMargin(x,y, startCastle, 2)) return false;
+    if (inRectMargin(x,y, southKeep,  2)) return false;
+
+    // Avoid reserved tiles and stacking
+    if (reserved.has(keyXY(x,y))) return false;
+    if (used.has(keyXY(x,y))) return false;
+
+    return true;
   }
+
+  function placeRes(type,x,y){
+    used.add(keyXY(x,y));
+    placeResource(type, x, y);
+  }
+
+  function tooCloseToSameType(type, x,y, minDistTiles){
+    for (const r of resources){
+      if (!r.alive || r.type !== type) continue;
+      if (Math.hypot(r.x - x, r.y - y) < minDistTiles) return true;
+    }
+    return false;
+  }
+
+  // Zones to nudge trees into "real" looking regions (not symmetric, not centered)
+  const TREE_ZONES = [
+    { x1: 16, y1: 5,  x2: 57, y2: 18, w: 1.00 }, // north / northeast
+    { x1: 3,  y1: 25, x2: 25, y2: 38, w: 1.00 }, // south west
+    { x1: 30, y1: 24, x2: 58, y2: 38, w: 0.85 }, // south east
+    { x1: 0,  y1: 12, x2: 14, y2: 38, w: 0.55 }, // west band
+    { x1: 18, y1: 18, x2: 40, y2: 26, w: 0.60 }, // mid band
+  ];
+
+  const ROCK_ZONES = [
+    { x1: 12, y1: 3,  x2: 26, y2: 16, w: 1.00 }, // near north cliff
+    { x1: 4,  y1: 24, x2: 18, y2: 38, w: 1.00 }, // near south cliff
+    { x1: 22, y1: 26, x2: 40, y2: 36, w: 0.85 }, // near mid cliff
+    { x1: 42, y1: 24, x2: 58, y2: 38, w: 0.70 }, // south/east
+  ];
+
+  function pickZone(zones){
+    const total = zones.reduce((a,z)=>a+z.w,0);
+    let r = rng() * total;
+    for (const z of zones){
+      r -= z.w;
+      if (r <= 0) return z;
+    }
+    return zones[zones.length-1];
+  }
+  function sampleInZone(z){
+    return { x: randInt(rng, z.x1, z.x2), y: randInt(rng, z.y1, z.y2) };
+  }
+
+  // ---------- Trees: groves + scatter ----------
+  const TREE_TOTAL = 30;
+  const GROVE_COUNT = 4;
+  const groveCenters = [];
+  const groveCenterMinDist = 10;
+
+  function findGroveCenter(){
+    for (let a=0; a<2500; a++){
+      const z = pickZone(TREE_ZONES);
+      const p = sampleInZone(z);
+      if (!tileOkForResource(p.x,p.y)) continue;
+      // keep grove centers apart
+      let ok = true;
+      for (const c of groveCenters){
+        if (Math.hypot(c.x - p.x, c.y - p.y) < groveCenterMinDist){ ok = false; break; }
+      }
+      if (!ok) continue;
+      return p;
+    }
+    return null;
+  }
+
+  for (let i=0; i<GROVE_COUNT; i++){
+    const c = findGroveCenter();
+    if (c) groveCenters.push(c);
+  }
+
+  function fillGrove(cx,cy, want){
+    let placed = 0;
+    for (let a=0; a<want*45 && placed<want; a++){
+      const ang = rng() * Math.PI * 2;
+      // center-weighted radius for natural falloff
+      const rr = (1.0 + rng()*4.0) * (rng()**0.55);
+      const x = Math.round(cx + Math.cos(ang) * rr);
+      const y = Math.round(cy + Math.sin(ang) * rr);
+
+      if (!tileOkForResource(x,y)) continue;
+      // allow some adjacency, but avoid “solid blobs”
+      if (tooCloseToSameType("tree", x,y, 1.35)) continue;
+
+      placeRes("tree", x,y);
+      placed++;
+    }
+    return placed;
+  }
+
+  for (const c of groveCenters){
+    const groveSize = randInt(rng, 6, 9);
+    fillGrove(c.x, c.y, groveSize);
+  }
+
+  // scatter singles to reach TREE_TOTAL
+  for (let a=0; a<12000 && resources.filter(r=>r.type==="tree").length < TREE_TOTAL; a++){
+    const z = pickZone(TREE_ZONES);
+    const p = sampleInZone(z);
+    if (!tileOkForResource(p.x,p.y)) continue;
+    if (tooCloseToSameType("tree", p.x,p.y, 1.05)) continue;
+    placeRes("tree", p.x,p.y);
+  }
+
+  // ---------- Rocks: prefer near cliffs, clustered ----------
+  const ROCK_TOTAL = 12;
+  const ROCK_CLUSTER_COUNT = 3;
+
+  function tileOkForRock(x,y){
+    if (!tileOkForResource(x,y)) return false;
+    return true;
+  }
+
+  function findRockCenter(preferCliff){
+    for (let a=0; a<2500; a++){
+      const z = pickZone(ROCK_ZONES);
+      const p = sampleInZone(z);
+      if (!tileOkForRock(p.x,p.y)) continue;
+
+      if (preferCliff && !nearTileType(p.x,p.y, 2, 1)) continue; // near cliff
+      return p;
+    }
+    return null;
+  }
+
+  let rocksPlaced = 0;
+
+  function fillRockCluster(cx,cy, want){
+    let placed = 0;
+    for (let a=0; a<want*35 && placed<want; a++){
+      const x = cx + randInt(rng, -2, 2);
+      const y = cy + randInt(rng, -2, 2);
+      if (!tileOkForRock(x,y)) continue;
+      if (tooCloseToSameType("rock", x,y, 1.15)) continue;
+      placeRes("rock", x,y);
+      placed++;
+    }
+    return placed;
+  }
+
+  for (let i=0; i<ROCK_CLUSTER_COUNT && rocksPlaced < ROCK_TOTAL; i++){
+    const c = findRockCenter(true) || findRockCenter(false);
+    if (!c) break;
+    const sz = randInt(rng, 3, 5);
+    rocksPlaced += fillRockCluster(c.x, c.y, Math.min(sz, ROCK_TOTAL - rocksPlaced));
+  }
+
+  // top-off any remaining rocks in rock zones
+  for (let a=0; a<8000 && rocksPlaced < ROCK_TOTAL; a++){
+    const z = pickZone(ROCK_ZONES);
+    const p = sampleInZone(z);
+    if (!tileOkForRock(p.x,p.y)) continue;
+    if (tooCloseToSameType("rock", p.x,p.y, 1.05)) continue;
+    placeRes("rock", p.x,p.y);
+    rocksPlaced++;
+  }
+}
+
   function seedMobs(){
-    mobs.length=0;
-    [[16,15],[28,14],[36,12],[12,34],[46,34]]
-      .forEach(([x,y])=> isWalkable(x,y) && placeMob("rat",x,y));
+  mobs.length = 0;
+
+  const rng = makeRng(worldSeed ^ 0x51C3A2B9);
+  const used = new Set();
+
+  // Build a reachable set so rats never spawn in sealed-off areas
+  const reachable = new Set();
+  (function buildReachable(){
+    const q = [{x: player.x, y: player.y}];
+    reachable.add(keyXY(player.x, player.y));
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    while (q.length){
+      const cur = q.shift();
+      for (const [dx,dy] of dirs){
+        const nx = cur.x + dx, ny = cur.y + dy;
+        if (!isWalkable(nx,ny)) continue;
+        const k = keyXY(nx,ny);
+        if (reachable.has(k)) continue;
+        reachable.add(k);
+        q.push({x:nx,y:ny});
+      }
+    }
+  })();
+
+  // Keep clear of starter safety area + paths
+  function tileOkForRat(x,y){
+    if (!inBounds(x,y)) return false;
+
+    // Rats on grass only (not inside castles/paths)
+    if (map[y][x] !== 0) return false;
+
+    // Must be reachable from the player start region
+    if (!reachable.has(keyXY(x,y))) return false;
+
+    // Don’t sit on resources
+    if (resources.some(r => r.alive && r.x===x && r.y===y)) return false;
+
+    // Avoid interactable tiles (known)
+    if ((x===startCastle.x0+4 && y===startCastle.y0+3) || (x===startCastle.x0+6 && y===startCastle.y0+3) || (x===9 && y===13)) return false;
+
+    // Avoid castles/keeps + a buffer so early game feels safe
+    if (inRectMargin(x,y, startCastle, 6)) return false;
+    if (inRectMargin(x,y, southKeep,  6)) return false;
+
+    // Avoid the main path tile itself (looks goofy)
+    if (map[y][x] === 5) return false;
+    if (nearTileType(x,y, 5, 0)) return false;
+
+    // Avoid stacking rats
+    if (used.has(keyXY(x,y))) return false;
+
+    return true;
   }
+
+  function treeDensity(x,y, radius){
+    let c = 0;
+    for (const r of resources){
+      if (!r.alive || r.type !== "tree") continue;
+      if (Math.hypot(r.x - x, r.y - y) <= radius) c++;
+    }
+    return c;
+  }
+
+  function tooCloseToExistingRat(x,y, minDist){
+    for (const m of mobs){
+      if (!m.alive) continue;
+      if (Math.hypot(m.x - x, m.y - y) < minDist) return true;
+    }
+    return false;
+  }
+
+  function spawnRat(x,y){
+    used.add(keyXY(x,y));
+    placeMob("rat", x, y);
+  }
+
+  function findNestTile(kind){
+    for (let a=0; a<5000; a++){
+      const x = randInt(rng, 0, W-1);
+      const y = randInt(rng, 0, H-1);
+      if (!tileOkForRat(x,y)) continue;
+
+      if (kind === "river"){
+        // next to water tiles (riverbanks), not on bridges/path
+        if (!nearTileType(x,y, 1, 1)) continue;
+        if (nearTileType(x,y, 5, 1)) continue; // keep off bridges
+      } else if (kind === "woods"){
+        if (treeDensity(x,y, 4.0) < 4) continue;
+      }
+
+      return {x,y};
+    }
+    return null;
+  }
+
+  function spawnAround(cx,cy, count){
+    let placed = 0;
+    for (let a=0; a<count*60 && placed<count; a++){
+      const x = cx + randInt(rng, -3, 3);
+      const y = cy + randInt(rng, -3, 3);
+      if (!tileOkForRat(x,y)) continue;
+      if (tooCloseToExistingRat(x,y, 3.0)) continue;
+      spawnRat(x,y);
+      placed++;
+    }
+    return placed;
+  }
+
+  // 3 nests: 2 riverbank nests, 1 woodland nest
+  const nests = [
+    { kind:"river", count: 2 },
+    { kind:"river", count: 2 },
+    { kind:"woods", count: 3 },
+  ];
+
+  for (const n of nests){
+    const c = findNestTile(n.kind);
+    if (!c) continue;
+    spawnAround(c.x, c.y, n.count);
+  }
+
+  // Top off if constraints were tight
+  const TARGET_RATS = 7;
+  for (let a=0; a<9000 && mobs.length < TARGET_RATS; a++){
+    const x = randInt(rng, 0, W-1);
+    const y = randInt(rng, 0, H-1);
+    if (!tileOkForRat(x,y)) continue;
+    if (tooCloseToExistingRat(x,y, 3.0)) continue;
+    spawnRat(x,y);
+  }
+}
+
   function seedInteractables(){
     interactables.length=0;
     const bx = startCastle.x0 + 4;
@@ -1175,7 +1589,7 @@ vendor: getWindowRect(winVendor)
 
     function renderSkills(){
     skillsGrid.innerHTML="";
-    const order = ["health","accuracy","power","defense","ranged","sorcery","fletching","woodcutting","mining","firemaking"];
+    const order = ["health","accuracy","power","defense","ranged","sorcery","fletching","woodcutting","mining","firemaking", "cooking"];
 
     for (const k of order){
       const s = Skills[k];
@@ -1932,8 +2346,12 @@ return;
 
   // ---------- World + flow ----------
   function startNewGame(){
+
     closeCtxMenu();
     setUseState(null);
+
+initWorldSeed();
+
 
     for (const k of Object.keys(Skills)) Skills[k].xp = 0;
 
@@ -2017,6 +2435,8 @@ return;
     if (ent.kind==="res" && ent.label==="Rock") chatLine(`<span class="muted">A mineral rock. Might contain ore.</span>`);
     if (ent.kind==="bank") chatLine(`<span class="muted">A secure bank chest.</span>`);
     if (ent.kind==="vendor") chatLine(`<span class="muted">A traveling vendor. Buys and sells goods.</span>`);
+    if (ent.kind==="fire") chatLine(`<span class="muted">A warm campfire. Great for cooking.</span>`);
+
     
 
   }
@@ -2245,6 +2665,53 @@ function ensureWalkIntoRangeAndAct(){
     stopAction();
     return;
   }
+  // ---------- CAMPFIRE ----------
+  if (t.kind === "fire"){
+    const f = interactables[t.index];
+    if (!f) return stopAction();
+
+    if (!inRangeOfTile(f.x, f.y, 1.1)){
+      const adj = [[1,0],[-1,0],[0,1],[0,-1]]
+        .map(([dx,dy])=>({x:f.x+dx,y:f.y+dy}))
+        .filter(p=>isWalkable(p.x,p.y));
+      if (!adj.length) return stopAction("No path to fire.");
+      adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
+      setPathTo(adj[0].x, adj[0].y);
+      return;
+    }
+
+    player.facing.x = clamp(f.x - player.x, -1, 1);
+    player.facing.y = clamp(f.y - player.y, -1, 1);
+
+    if (player.action.type !== "idle") return;
+
+    if (!hasItem("rat_meat")){
+      chatLine(`<span class="muted">The fire crackles.</span>`);
+      stopAction();
+      return;
+    }
+
+    chatLine(`You cook the meat over the fire...`);
+    startTimedAction("cook", 1400, "Cooking...", () => {
+      if (!removeItemsFromInventory("rat_meat", 1)){
+        chatLine(`<span class="warn">You need raw meat.</span>`);
+        return;
+      }
+
+      const got = addToInventory("cooked_rat_meat", 1);
+      // (this should basically always succeed because removing rat_meat frees a slot)
+      if (got === 1){
+        addXP("cooking", 12);
+        chatLine(`<span class="good">You cook some meat.</span> (+12 XP)`);
+      } else {
+        addGroundLoot(f.x, f.y, "cooked_rat_meat", 1);
+        addXP("cooking", 12);
+        chatLine(`<span class="warn">Inventory full: ${Items.cooked_rat_meat.name}</span> (+12 XP)`);
+      }
+    });
+
+    return;
+  }
 
   // ---------- RESOURCES ----------
   if (t.kind==="res"){
@@ -2374,6 +2841,17 @@ function ensureWalkIntoRangeAndAct(){
     if (m.hp <= 0){
       m.alive=false; m.respawnAt=now()+12000; m.hp=0;
       chatLine(`<span class="good">You defeat the rat.</span>`);
+      // Extra drop: raw rat meat
+      if (Math.random() < 0.55){
+        const got = addToInventory("rat_meat", 1);
+        if (got === 1){
+          chatLine(`<span class="good">The rat drops raw meat.</span>`);
+        } else {
+          addGroundLoot(m.x, m.y, "rat_meat", 1);
+          chatLine(`<span class="warn">Inventory full: ${Items.rat_meat.name}</span>`);
+        }
+      }
+
 
       if (Math.random() < 0.75){
         const got = addToInventory("bone", 1);
@@ -3063,6 +3541,12 @@ if (it.type === "vendor"){
       opts.push({label:"Examine Bank Chest", onClick:()=>examineEntity(ent)});
       opts.push({type:"sep"});
       opts.push({label:"Walk here", onClick:walkHere});
+    } else if (ent?.kind==="fire"){
+      opts.push({label:"Cook", onClick:()=>beginInteraction(ent)});
+      opts.push({label:"Examine Campfire", onClick:()=>examineEntity(ent)});
+      opts.push({type:"sep"});
+      opts.push({label:"Walk here", onClick:walkHere});
+
 } else if (ent?.kind==="vendor"){
   opts.push({label:"Trade", onClick:()=>beginInteraction(ent)});
   opts.push({label:"Examine Vendor", onClick:()=>examineEntity(ent)});
@@ -3474,6 +3958,8 @@ if (windowsOpen.vendor && !vendorAvailable){
 
   // ---------- Boot ----------
   function bootstrap(){
+initWorldSeed();
+
     loadChatUI();
     applyChatUI();
 
@@ -3487,10 +3973,6 @@ if (windowsOpen.vendor && !vendorAvailable){
     if (savedChar?.class && CLASS_DEFS[savedChar.class]) player.class = savedChar.class;
     player.color = CLASS_DEFS[player.class]?.color ?? player.color;
     if (savedChar?.name) player.name = String(savedChar.name).slice(0,14);
-
-    seedResources();
-    seedMobs();
-    seedInteractables();
 
     startNewGame();
 
