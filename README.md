@@ -36,8 +36,6 @@ The goal is to keep it “old-school”: click around, fight stuff, gather mater
 ## What we’re working on next
 
 ### Cooking
-- Raw food items
-- Cook food on a campfire
 - Simple success/burn timing (later)
 
 ### Firemaking polish
@@ -45,7 +43,6 @@ The goal is to keep it “old-school”: click around, fight stuff, gather mater
 - Cleaner interaction flow and feedback
 
 ### Vendor polish
-- Make the shopkeeper interaction feel natural (walk up + trade)
 - More items + prices that make sense
 
 ### Content + progression
