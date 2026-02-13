@@ -893,9 +893,10 @@ const DEFAULT_VENDOR_STOCK = [
   { id: "bone", price: 1, bulk: [1, 5] },
   { id: "axe", price: 25, bulk: [1] },
   { id: "pick", price: 25, bulk: [1] },
+  { id: "staff", price: 45, bulk: [1] },
   { id: "sword", price: 60, bulk: [1] },
-{ id: "shield", price: 60, bulk: [1] },
-{ id: "bow", price: 75, bulk: [1] }
+  { id: "shield", price: 60, bulk: [1] },
+  { id: "bow", price: 75, bulk: [1] },
 
 ];
 const DEFAULT_MOB_LEVELS = {
