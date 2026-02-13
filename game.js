@@ -172,14 +172,17 @@
     fletching:{ name:"Fletching", xp:0 },
     woodcutting:{ name:"Woodcut", xp:0 },
     mining:{ name:"Mining", xp:0 },
+fishing:{ name:"Fishing", xp:0 },
 firemaking:{ name:"Firemaking", xp:0 },
-    cooking:{ name:"Cooking", xp:0 },
+cooking:{ name:"Cooking", xp:0 },
+
 
 
   };
   const SKILL_ICONS = {
     accuracy:"🎯", power:"💪", defense:"🛡️", ranged:"🏹", sorcery:"✨", fletching:"🪶", health:"❤️",
-    woodcutting:"🪵", firemaking:"🔥", cooking:"🍳", mining:"⛏️"
+    woodcutting:"🪵", mining:"⛏️", fishing:"🎣", firemaking:"🔥", cooking:"🍳"
+
 
   };
 // ---------- Combat level (RuneScape-style, OSRS-like; no Prayer in this game) ----------
@@ -343,9 +346,53 @@ function levelStrokeForCls(cls){
         <rect x="9" y="3" width="1" height="1" fill="rgb(226,232,240)"/>
       </svg>`
     },
+goldfish: {
+  id:"goldfish",
+  name:"Gold Fish",
+  heal: 2,          // same as raw rat meat
+  stack:true,
+  icon:`<svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block">
+    <rect x="4" y="6" width="7" height="1" fill="rgb(40,22,16)"/>
+    <rect x="3" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+    <rect x="11" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+    <rect x="4" y="9" width="7" height="1" fill="rgb(40,22,16)"/>
+    <rect x="4" y="7" width="7" height="2" fill="rgb(250,204,21)"/>
+    <rect x="5" y="7" width="5" height="2" fill="rgb(253,230,138)"/>
+    <rect x="2" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+    <rect x="3" y="7" width="1" height="1" fill="rgb(250,204,21)"/>
+    <rect x="3" y="8" width="1" height="1" fill="rgb(253,230,138)"/>
+    <rect x="9" y="7" width="1" height="1" fill="rgb(40,22,16)"/>
+    <rect x="6" y="9" width="2" height="1" fill="rgb(186,111,33)"/>
+  </svg>`
+},
+
+goldfish_cracker: {
+  id:"goldfish_cracker",
+  name:"Gold Fish Cracker",
+  heal: 8,          // same as cooked rat meat
+  stack:true,
+  icon:`<svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block">
+    <rect x="4" y="4" width="8" height="1" fill="rgb(40,22,16)"/>
+    <rect x="4" y="11" width="8" height="1" fill="rgb(40,22,16)"/>
+    <rect x="3" y="5" width="1" height="6" fill="rgb(40,22,16)"/>
+    <rect x="12" y="5" width="1" height="6" fill="rgb(40,22,16)"/>
+    <rect x="4" y="5" width="8" height="6" fill="rgb(245,158,11)"/>
+    <rect x="5" y="6" width="6" height="4" fill="rgb(251,191,36)"/>
+    <rect x="6" y="7" width="1" height="1" fill="rgb(40,22,16)"/>
+    <rect x="9" y="7" width="1" height="1" fill="rgb(40,22,16)"/>
+    <rect x="7" y="9" width="1" height="1" fill="rgb(40,22,16)"/>
+  </svg>`
+},
+
 
 
   };
+// ---------- Cooking recipes ----------
+// Used by the campfire interaction (and respects the current "Use:" item if it matches).
+const COOK_RECIPES = {
+  rat_meat: { out: "cooked_rat_meat", xp: 12, verb: "cook some meat" },
+  goldfish: { out: "goldfish_cracker", xp: 12, verb: "cook a gold fish cracker" },
+};
 
   const inv = Array.from({length: MAX_INV}, () => null);
   const bank = Array.from({length: MAX_BANK}, () => null);
@@ -437,6 +484,21 @@ function levelStrokeForCls(cls){
     if (item.ammo){
       return addToQuiver(id, qty);
     }
+// stackables: merge into an existing stack, else create a new stack slot
+if (item.stack){
+  const idx = inv.findIndex(s => s && s.id === id);
+  if (idx >= 0){
+    inv[idx] = { id, qty: (((inv[idx].qty|0) || 1) + qty) };
+    renderInv();
+    return qty;
+  }
+  const empty = inv.findIndex(s => !s);
+  if (empty < 0) return 0;
+  inv[empty] = { id, qty };
+  renderInv();
+  return qty;
+}
+
 
     // everything else: one-per-slot (no stacking in inventory)
     let added = 0;
@@ -1215,6 +1277,10 @@ const DEFAULT_MOB_LEVELS = {
     const by = startCastle.y0 + 3;
     placeInteractable("bank", bx, by);
 placeInteractable("vendor", bx + 2, by);
+// Fishing spots on the river near the starter castle
+placeInteractable("fish", 6, RIVER_Y);
+placeInteractable("fish", 10, RIVER_Y + 1);
+
 
 
 
@@ -1814,7 +1880,8 @@ const skillsCombatPillEl = document.getElementById("skillsCombatPill");
     skillsGrid.innerHTML="";
 if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCombatLevel()}`;
 
-    const order = ["health","accuracy","power","defense","ranged","sorcery","fletching","woodcutting","mining","firemaking", "cooking"];
+    const order = ["health","accuracy","power","defense","ranged","sorcery","fletching","woodcutting","mining","fishing","firemaking","cooking"];
+
 
     for (const k of order){
       const s = Skills[k];
@@ -2651,7 +2718,8 @@ player.invulnUntil = now() + 1200;
     if (it.type === "fire")   return { kind:"fire", index: idx, label:"Campfire", x:it.x, y:it.y };
     if (it.type === "bank")   return { kind:"bank", index: idx, label:"Bank Chest", x:it.x, y:it.y };
     if (it.type === "vendor") return { kind:"vendor", index: idx, label:"Vendor", x:it.x, y:it.y };
-    
+    if (it.type === "fish") return { kind:"fish", index: idx, label:"Fishing Spot", x:it.x, y:it.y };
+
   }
 
   // Mobs
@@ -2682,6 +2750,8 @@ player.invulnUntil = now() + 1200;
     if (ent.kind==="bank") chatLine(`<span class="muted">A secure bank chest.</span>`);
     if (ent.kind==="vendor") chatLine(`<span class="muted">A traveling vendor. Buys and sells goods.</span>`);
     if (ent.kind==="fire") chatLine(`<span class="muted">A warm campfire. Great for cooking.</span>`);
+if (ent.kind==="fish") chatLine(`<span class="muted">A bubbling fishing spot in the river.</span>`);
+
 
     
 
@@ -3156,33 +3226,105 @@ function ensureWalkIntoRangeAndAct(){
 
     if (player.action.type !== "idle") return;
 
-    if (!hasItem("rat_meat")){
-      chatLine(`<span class="muted">The fire crackles.</span>`);
-      stopAction();
-      return;
-    }
+   // Prefer the currently selected "Use:" item if it's cookable.
+const useCookable = (activeUseItemId && COOK_RECIPES[activeUseItemId] && hasItem(activeUseItemId))
+  ? activeUseItemId
+  : null;
 
-    chatLine(`You cook the meat over the fire...`);
-    startTimedAction("cook", 1400, "Cooking...", () => {
-      if (!removeItemsFromInventory("rat_meat", 1)){
-        chatLine(`<span class="warn">You need raw meat.</span>`);
-        return;
-      }
+// Fallback: cook *something* if you have it
+const cookId =
+  useCookable ||
+  (hasItem("rat_meat") ? "rat_meat" :
+  (hasItem("goldfish") ? "goldfish" : null));
 
-      const got = addToInventory("cooked_rat_meat", 1);
-      // (this should basically always succeed because removing rat_meat frees a slot)
-      if (got === 1){
-        addXP("cooking", 12);
-        chatLine(`<span class="good">You cook some meat.</span> (+12 XP)`);
-      } else {
-        addGroundLoot(f.x, f.y, "cooked_rat_meat", 1);
-        addXP("cooking", 12);
-        chatLine(`<span class="warn">Inventory full: ${Items.cooked_rat_meat.name}</span> (+12 XP)`);
-      }
-    });
+if (!cookId){
+  chatLine(`<span class="muted">The fire crackles.</span>`);
+  stopAction();
+  return;
+}
+
+const rec = COOK_RECIPES[cookId];
+chatLine(`You cook over the fire...`);
+startTimedAction("cook", 1400, "Cooking...", () => {
+  // consume 1 raw item
+  if (!removeItemsFromInventory(cookId, 1)){
+    chatLine(`<span class="warn">You need ${Items[cookId]?.name ?? cookId}.</span>`);
+    return;
+  }
+
+  // if you used the "Use:" state to pick this item, clear it after the cook
+  if (activeUseItemId === cookId) setUseState(null);
+
+  const got = addToInventory(rec.out, 1);
+  if (got === 1){
+    addXP("cooking", rec.xp);
+    chatLine(`<span class="good">You ${rec.verb}.</span> (+${rec.xp} XP)`);
+  } else {
+    // drop on *your* tile (not in the river / unreachable)
+    addGroundLoot(player.x, player.y, rec.out, 1);
+    addXP("cooking", rec.xp);
+    chatLine(`<span class="warn">Inventory full: ${Items[rec.out].name}</span> (+${rec.xp} XP)`);
+  }
+});
+
 
     return;
   }
+// ---------- FISHING ----------
+if (t.kind === "fish"){
+  const spot = interactables[t.index];
+  if (!spot) return stopAction();
+
+  if (!inRangeOfTile(spot.x, spot.y, 1.25)){
+    const adj = [[1,0],[-1,0],[0,1],[0,-1]]
+      .map(([dx,dy])=>({x:spot.x+dx,y:spot.y+dy}))
+      .filter(p=>isWalkable(p.x,p.y));
+    if (!adj.length) return stopAction("No path to fishing spot.");
+    adj.sort((a,c)=> (Math.abs(a.x-player.x)+Math.abs(a.y-player.y)) - (Math.abs(c.x-player.x)+Math.abs(c.y-player.y)));
+    setPathTo(adj[0].x, adj[0].y);
+    return;
+  }
+
+  player.facing.x = clamp(spot.x - player.x, -1, 1);
+  player.facing.y = clamp(spot.y - player.y, -1, 1);
+
+  if (player.action.type !== "idle") return;
+
+  const lvl = levelFromXP(Skills.fishing.xp);
+  if (lvl < 1){
+    stopAction("Your Fishing level is too low.");
+    return;
+  }
+
+  // Goldfish stack; allow fishing if you already have a stack even when inv is full.
+  if (!hasItem("goldfish") && emptyInvSlots() <= 0){
+    stopAction("Inventory full.");
+    return;
+  }
+
+  startTimedAction("fish", 1600, "Fishing...", () => {
+    const lvlNow = levelFromXP(Skills.fishing.xp);
+
+    // simple RS-like catch chance
+    const chance = clamp(0.35 + lvlNow * 0.05, 0.35, 0.90);
+    if (Math.random() > chance){
+      chatLine(`<span class="muted">You fail to catch anything.</span>`);
+      return;
+    }
+
+    const got = addToInventory("goldfish", 1);
+    if (got === 1){
+      addXP("fishing", 18);
+      chatLine(`<span class="good">You catch a gold fish.</span> (+18 XP)`);
+    } else {
+      addGroundLoot(player.x, player.y, "goldfish", 1);
+      addXP("fishing", 18);
+      chatLine(`<span class="warn">Inventory full: ${Items.goldfish.name}</span> (+18 XP)`);
+    }
+  });
+
+  return;
+}
 
   // ---------- RESOURCES ----------
   if (t.kind==="res"){
@@ -3735,6 +3877,33 @@ if (item.ammo){
   ctx.restore();
 }
 
+if (it.type === "fish"){
+  const cx = it.x * TILE + TILE/2;
+  const cy = it.y * TILE + TILE/2;
+  const t = now();
+  const phase = (t/260) + (it.x*0.7 + it.y*1.1);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.globalAlpha = 0.85;
+
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "rgba(147,197,253,0.85)";
+  for (let r=0; r<2; r++){
+    const rr = 6 + r*4 + (Math.sin(phase + r)*1.5);
+    ctx.beginPath();
+    ctx.arc(0, 0, rr, 0, Math.PI*2);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "rgba(248,250,252,0.9)";
+  ctx.beginPath();
+  ctx.arc(2, -2, 1.2, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
 
 if (it.type === "vendor"){
   // vendor marker (draw in WORLD coords; camera/zoom already handled by ctx transform)
@@ -4192,6 +4361,12 @@ let mouseSeen=false;
       opts.push({label:"Examine Campfire", onClick:()=>examineEntity(ent)});
       opts.push({type:"sep"});
       opts.push({label:"Walk here", onClick:walkHere});
+} else if (ent?.kind==="fish"){
+  opts.push({label:"Fish", onClick:()=>beginInteraction(ent)});
+  opts.push({label:"Examine Fishing Spot", onClick:()=>examineEntity(ent)});
+  opts.push({type:"sep"});
+  opts.push({label:"Walk here", onClick:walkHere});
+
 
 } else if (ent?.kind==="vendor"){
   opts.push({label:"Trade", onClick:()=>beginInteraction(ent)});
