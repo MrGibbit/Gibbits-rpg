@@ -437,17 +437,40 @@ const COOK_RECIPES = {
   // ---------- Ground loot piles ----------
   // key "x,y" -> Map(itemId -> qty)
   const groundLoot = new Map();
+const GROUND_LOOT_DESPAWN_MS = 60_000; // 60 seconds
+
 
   function lootKey(x,y){ return `${x},${y}`; }
-  function addGroundLoot(x,y,id,qty=1){
-    const item = Items[id];
-    if (!item) return;
-    qty = Math.max(1, qty|0);
-    const k = lootKey(x,y);
-    if (!groundLoot.has(k)) groundLoot.set(k, new Map());
-    const pile = groundLoot.get(k);
-    pile.set(id, (pile.get(id)|0) + qty);
+  // Manual drops: prevent the auto-loot system from instantly picking the item back up.
+  // Keyed by tile ("x,y"). The lock clears once you walk out of auto-loot range of that tile.
+  const manualDropLocks = new Map();
+  function lockManualDropAt(x,y){
+    manualDropLocks.set(lootKey(x,y), true);
   }
+
+  function addGroundLoot(x,y,id,qty=1){
+  const item = Items[id];
+  if (!item) return;
+
+  qty = Math.max(1, qty|0);
+  const k = lootKey(x,y);
+  const t = now();
+
+  if (!groundLoot.has(k)){
+    const pile = new Map();
+    pile.createdAt = t;
+    pile.expiresAt = t + GROUND_LOOT_DESPAWN_MS;
+    groundLoot.set(k, pile);
+  }
+
+  const pile = groundLoot.get(k);
+
+  // refresh despawn timer whenever something is added to this tile
+  if (!Number.isFinite(pile.createdAt)) pile.createdAt = t;
+  pile.expiresAt = t + GROUND_LOOT_DESPAWN_MS;
+  pile.set(id, (pile.get(id)|0) + qty);
+}
+
   function getLootPileAt(x,y){
     const pile = groundLoot.get(lootKey(x,y));
     if (!pile || pile.size === 0) return null;
@@ -462,6 +485,16 @@ const COOK_RECIPES = {
     }
     if (pile.size === 0) groundLoot.delete(k);
   }
+function pruneExpiredGroundLoot(){
+  const t = now();
+  for (const [k, pile] of groundLoot.entries()){
+    if (!pile) { groundLoot.delete(k); continue; }
+    if (Number.isFinite(pile.expiresAt) && t >= pile.expiresAt){
+      groundLoot.delete(k);
+    }
+  }
+}
+
 
   // auto-loot throttling for "Inventory full: <ItemName>" messages
   let lastInvFullMsgAt = 0;
@@ -2338,21 +2371,28 @@ if (toolId === "flint_steel" && targetId === "log") {
 
     opts.push({ type:"sep" });
 
+              opts.push({ type:"sep" });
+
     opts.push({ label: "Drop", onClick: ()=>{
       // drop to ground pile at player tile (no deletion)
+      
       inv[idx]=null;
+	lockManualDropAt(player.x, player.y);
       addGroundLoot(player.x, player.y, s.id, 1);
       renderInv();
       chatLine(`<span class="muted">You drop the ${item?.name ?? s.id}.</span>`);
     }});
+
 
     opts.push({ label: "Drop X…", onClick: ()=>{
       const v=prompt("Drop how many?", "10");
       const n=Math.max(1, parseInt(v||"",10) || 0);
       if (!n) return;
 
+      lockManualDropAt(player.x, player.y);
       let remaining = n;
       for (let i=0; i<inv.length && remaining>0; i++){
+
         if (inv[i] && inv[i].id === s.id){
           inv[i] = null;
           addGroundLoot(player.x, player.y, s.id, 1);
@@ -2598,6 +2638,8 @@ return;
     equipment.offhand = null;
 
     groundLoot.clear();
+manualDropLocks.clear();
+
 
     player.path = [];
     player.target = null;
@@ -2650,6 +2692,8 @@ initWorldSeed();
     quiver.wooden_arrow = 0;
     wallet.gold = 0;
     groundLoot.clear();
+manualDropLocks.clear();
+
 
 
     recalcMaxHPFromHealth();
@@ -3528,14 +3572,32 @@ if (style === "magic"){
     const range = 1.25;
     const px = player.x, py = player.y;
 
-    // To avoid iterating entire map, iterate piles and early cull
+// To avoid iterating entire map, iterate piles and early cull
     for (const [k, pile] of groundLoot.entries()){
+
+// skip/remove expired piles (extra safety)
+const tNow = now();
+if (Number.isFinite(pile.expiresAt) && tNow >= pile.expiresAt){
+  groundLoot.delete(k);
+  continue;
+}
+
       if (!pile || pile.size===0) continue;
       const [sx,sy] = k.split(",").map(n=>parseInt(n,10));
       if (!Number.isFinite(sx) || !Number.isFinite(sy)) continue;
 
       const d = tilesFromPlayerToTile(sx, sy);
+
+// If this tile was created via a manual "Drop" action, don't auto-loot it until
+// the player walks out of range (prevents instant re-pickup).
+if (manualDropLocks.has(k)){
+  if (d > range) manualDropLocks.delete(k);
+  else continue;
+}
+
+
       if (d > range) continue;
+
 
       // in range: try to pick up each item
       for (const [id, qty0] of Array.from(pile.entries())){
@@ -3920,6 +3982,12 @@ if (it.type === "vendor"){
     // subtle marker on tiles that have loot
     const {startX,startY,endX,endY}=visibleTileBounds();
     for (const [k,pile] of groundLoot.entries()){
+const tNow = now();
+if (Number.isFinite(pile.expiresAt) && tNow >= pile.expiresAt){
+  groundLoot.delete(k);
+  continue;
+}
+
       if (!pile || pile.size===0) continue;
       const [x,y]=k.split(",").map(n=>parseInt(n,10));
       if (!inBounds(x,y)) continue;
@@ -4384,7 +4452,10 @@ let mouseSeen=false;
     quiver: { ...quiver },
     wallet: { ...wallet },
 
-    groundLoot: Array.from(groundLoot.entries()).map(([k,p])=>[k, Array.from(p.entries())]),
+    groundLoot: Array.from(groundLoot.entries()).map(([k,p]) => {
+  const expiresIn = Number.isFinite(p.expiresAt) ? Math.max(0, Math.floor(p.expiresAt - t)) : GROUND_LOOT_DESPAWN_MS;
+  return [k, Array.from(p.entries()), expiresIn];
+}),
 
     world: {
       resources: resources.map(r => ({
@@ -4615,16 +4686,30 @@ let mouseSeen=false;
 
     // Ground loot
     groundLoot.clear();
+manualDropLocks.clear();
+
     if (Array.isArray(data?.groundLoot)){
-      for (const [k, entries] of data.groundLoot){
-        if (!k || !Array.isArray(entries)) continue;
-        const pile = new Map();
-        for (const [id,qty] of entries){
-          if (!Items[id]) continue;
-          pile.set(id, Math.max(0, qty|0));
-        }
-        if (pile.size) groundLoot.set(k, pile);
-      }
+      for (const row of data.groundLoot){
+  if (!Array.isArray(row) || row.length < 2) continue;
+
+  const k = row[0];
+  const entries = row[1];
+  const expiresIn = (row.length >= 3) ? (row[2]|0) : GROUND_LOOT_DESPAWN_MS;
+
+  if (!k || !Array.isArray(entries)) continue;
+
+  const pile = new Map();
+  pile.createdAt = t0;
+  pile.expiresAt = t0 + Math.max(0, expiresIn);
+
+  for (const [id,qty] of entries){
+    if (!Items[id]) continue;
+    pile.set(id, Math.max(0, qty|0));
+  }
+
+  if (pile.size) groundLoot.set(k, pile);
+}
+
     }
 
     renderSkills(); renderInv(); renderBank(); renderEquipment(); renderQuiver(); renderHPHUD(); updateCamera();
@@ -4738,7 +4823,11 @@ let mouseSeen=false;
       const it = interactables[i];
       if (it.type==="fire" && it.expiresAt && t >= it.expiresAt){
         interactables.splice(i,1);
+// expire ground loot
+pruneExpiredGroundLoot();
+
       }
+
     }
 
     // bank availability
