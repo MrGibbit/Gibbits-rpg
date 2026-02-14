@@ -48,6 +48,11 @@ Build a classic-style RPG loop in the browser:
 - Sorcery uses a wizard-hat icon
 - Naming cleanup: `Woodcut` -> `Woodcutting`
 
+### Stability Updates (v0.4.3)
+- GitHub Pages loading/path issues resolved for project-site hosting.
+- Module imports are standardized to canonical `src/` paths.
+- Import-path validation is automated in CI on push/PR.
+
 ## What Is Next
 - More enemies and combat variety
 - Expanded item/drop tables
@@ -66,6 +71,10 @@ python -m http.server 8000
 Then open:
 - `http://localhost:8000`
 
+## Release Notes
+- Current live patch notes: `PATCH_NOTES.md`
+- Last full release notes: `RELEASE_NOTES_v0.4.0.md`
+
 ## Module Layout Safety
 - JavaScript modules are canonical in `src/` and imported from `game.js` as `./src/*.js`.
 - Before publishing, run:
@@ -75,3 +84,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .github/scripts/validate-imp
 ```
 
 - GitHub Actions also runs this validation on every push and pull request.
+
+## Patch Notes Workflow
+- Update `PATCH_NOTES.md` as you build.
+- Keep the `Discord Copy (Paste This)` block player-facing and concise.
+- At release time, paste that block into Discord, then archive details in a new `RELEASE_NOTES_vX.Y.Z.md`.

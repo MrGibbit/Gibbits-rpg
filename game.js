@@ -14,6 +14,157 @@ import {
   gatherParticles, combatFX, mouse, player
 } from "./src/state.js";
 
+// Keep this local so game.js doesn't hard-fail if a stale cached state module is loaded.
+const vendorShop = { x0: 16, y0: 3, w: 8, h: 6 };
+const VENDOR_TILE = { x: 20, y: 4 };
+
+function buildCastleDecorDefs(){
+  const x0 = startCastle.x0 | 0;
+  const y0 = startCastle.y0 | 0;
+  const x1 = x0 + (startCastle.w | 0) - 1;
+  const y1 = y0 + (startCastle.h | 0) - 1;
+  const gateX = (startCastle.gateX ?? (x0 + Math.floor((startCastle.w | 0) / 2))) | 0;
+  const ix0 = x0 + 1;
+  const ix1 = x1 - 1;
+  const iy0 = y0 + 1;
+  const iy1 = y1 - 1;
+
+  const defs = [
+    { id: "castle_torch", label: "Wall Torch", x: ix0 + 2, y: iy0 },
+    { id: "castle_torch", label: "Wall Torch", x: ix1 - 2, y: iy0 },
+    { id: "castle_weapon_rack", label: "Weapon Rack", x: ix0, y: iy0 + 2 },
+    { id: "castle_table", label: "Command Table", x: gateX, y: iy0 + 1 },
+    { id: "castle_bench", label: "Stone Bench", x: gateX - 2, y: y1 + 1 },
+    { id: "castle_torch", label: "Wall Torch", x: gateX - 1, y: y1 },
+    { id: "castle_torch", label: "Wall Torch", x: gateX + 1, y: y1 },
+    { id: "castle_bookshelf", label: "Bookshelf", x: ix1 - 1, y: iy0 + 1 }
+  ];
+
+  for (let y = iy0 + 1; y <= iy1; y++){
+    defs.push({ id: "castle_rug", label: "Royal Rug", x: gateX, y });
+  }
+  return defs;
+}
+
+const CASTLE_DECOR_DEFS = buildCastleDecorDefs();
+function buildShopDecorDefs(){
+  const x0 = vendorShop.x0 | 0;
+  const y0 = vendorShop.y0 | 0;
+  const x1 = x0 + (vendorShop.w | 0) - 1;
+  const y1 = y0 + (vendorShop.h | 0) - 1;
+  const gateX = x0 + Math.floor((vendorShop.w | 0) / 2);
+  const ix0 = x0 + 1;
+  const ix1 = x1 - 1;
+  const iy0 = y0 + 1;
+  const iy1 = y1 - 1;
+
+  const defs = [
+    { id: "shop_shelf", label: "Supply Shelf", x: ix1 - 1, y: iy0 },
+    { id: "shop_counter", label: "Trade Counter", x: ix1, y: iy0 + 2 },
+    { id: "shop_barrel", label: "Storage Barrel", x: ix1, y: iy1 },
+    { id: "shop_crate", label: "Storage Crate", x: x1 + 1, y: y1 },
+    { id: "shop_barrel", label: "Storage Barrel", x: x0 - 1, y: y1 },
+    { id: "shop_sign", label: "Shop Signpost", x: gateX + 1, y: y1 + 2 },
+    { id: "shop_lantern", label: "Door Lantern", x: gateX + 1, y: y1 },
+    { id: "shop_bush", label: "Trimmed Bush", x: x0 - 1, y: y1 - 1 },
+    { id: "shop_bush", label: "Trimmed Bush", x: x1 + 1, y: y0 + 1 },
+    { id: "shop_flower", label: "Flower Patch", x: x1 + 2, y: y0 + 2 }
+  ];
+  for (let y = iy0 + 1; y <= iy1; y++){
+    defs.push({ id: "shop_rug", label: "Shop Runner", x: gateX, y });
+  }
+  return defs;
+}
+
+const SHOP_DECOR_DEFS = buildShopDecorDefs();
+const DECOR_DEFS = [...CASTLE_DECOR_DEFS, ...SHOP_DECOR_DEFS];
+const DECOR_LOOKUP = new Map();
+for (const d of DECOR_DEFS){
+  const k = `${d.x},${d.y}`;
+  if (!DECOR_LOOKUP.has(k)) DECOR_LOOKUP.set(k, d);
+}
+
+const DECOR_EXAMINE_TEXT = {
+  castle_torch: "A wall-mounted torch keeps the hall warmly lit.",
+  castle_weapon_rack: "A tidy rack of training weapons.",
+  castle_table: "A command table covered with simple field notes.",
+  castle_bench: "A heavy stone bench for weary travelers.",
+  castle_bookshelf: "Shelves packed with old manuals and records.",
+  castle_armor_stand: "A ceremonial suit of armor stands on display.",
+  castle_candle: "A brass candle stand with a steady little flame.",
+  castle_crest: "The castle crest, polished and proudly displayed.",
+  castle_rug: "A royal runner rug leading through the hall.",
+
+  shop_shelf: "Shelves stacked with mixed supplies for travelers.",
+  shop_counter: "A sturdy counter for haggling and trade.",
+  shop_crate: "A crate of dry goods and spare tools.",
+  shop_barrel: "A barrel sealed tight against weather and pests.",
+  shop_sign: "A signpost marking the local trading shop.",
+  shop_lantern: "A lantern that helps customers find the door at night.",
+  shop_bush: "A neatly trimmed bush that brightens the storefront.",
+  shop_flower: "A patch of hardy flowers planted by the path.",
+  shop_rug: "A woven runner that guides customers to the counter."
+};
+
+function getDecorAt(tx, ty){
+  return DECOR_LOOKUP.get(`${tx},${ty}`) ?? null;
+}
+
+function mapInBounds(x, y){
+  return x >= 0 && y >= 0 && x < W && y < H;
+}
+
+function paintPathTile(x, y){
+  if (!mapInBounds(x, y)) return;
+  const t = map[y][x];
+  if (t === 0 || t === 5) map[y][x] = 5;
+}
+
+function carveManhattanPath(x0, y0, x1, y1){
+  let x = x0 | 0;
+  let y = y0 | 0;
+  paintPathTile(x, y);
+  while (x !== x1){
+    x += Math.sign(x1 - x);
+    paintPathTile(x, y);
+  }
+  while (y !== y1){
+    y += Math.sign(y1 - y);
+    paintPathTile(x, y);
+  }
+}
+
+function stampVendorShopLayout(){
+  const x0 = vendorShop.x0 | 0;
+  const y0 = vendorShop.y0 | 0;
+  const w = vendorShop.w | 0;
+  const h = vendorShop.h | 0;
+  if (w < 3 || h < 3) return;
+
+  for (let y = y0; y < y0 + h; y++){
+    for (let x = x0; x < x0 + w; x++){
+      if (!mapInBounds(x, y)) continue;
+      const edge = (x === x0 || x === x0 + w - 1 || y === y0 || y === y0 + h - 1);
+      map[y][x] = edge ? 4 : 3;
+    }
+  }
+
+  const gateX = x0 + Math.floor(w / 2);
+  const gateY = y0 + h - 1;
+  if (mapInBounds(gateX, gateY)) map[gateY][gateX] = 5;
+  if (mapInBounds(gateX, gateY + 1)) map[gateY + 1][gateX] = 5;
+  if (mapInBounds(gateX, gateY + 2)) map[gateY + 2][gateX] = 5;
+
+  const fromX = (startCastle.gateX ?? (startCastle.x0 + Math.floor(startCastle.w / 2))) | 0;
+  const fromY = ((startCastle.gateY ?? (startCastle.y0 + startCastle.h - 1)) + 1) | 0;
+  const toX = gateX;
+  const toY = gateY + 2;
+  carveManhattanPath(fromX, fromY, toX, toY);
+}
+
+// Ensure vendor shop exists even if an older cached state.js is still loaded.
+stampVendorShopLayout();
+
 (() => {
 
 
@@ -963,8 +1114,7 @@ const DEFAULT_MOB_LEVELS = {
   // Tiles to keep clear (because interactables are placed after resources)
   const reserved = new Set([
     keyXY(startCastle.x0 + 4, startCastle.y0 + 3),     // bank
-    keyXY(startCastle.x0 + 6, startCastle.y0 + 3),     // vendor in castle
-                                          // vendor near starter area
+    keyXY(VENDOR_TILE.x, VENDOR_TILE.y),               // vendor in shop
     keyXY(startCastle.x0 + 6, startCastle.y0 + 4),     // player spawn-ish
   ]);
 
@@ -979,6 +1129,7 @@ const DEFAULT_MOB_LEVELS = {
 
     // Keep castles/keeps clean
     if (inRectMargin(x,y, startCastle, 2)) return false;
+    if (inRectMargin(x,y, vendorShop, 2)) return false;
     if (inRectMargin(x,y, southKeep,  2)) return false;
 
     // Avoid reserved tiles and stacking
@@ -1183,10 +1334,11 @@ const DEFAULT_MOB_LEVELS = {
     if (resources.some(r => r.alive && r.x===x && r.y===y)) return false;
 
     // Avoid interactable tiles (known)
-    if ((x===startCastle.x0+4 && y===startCastle.y0+3) || (x===startCastle.x0+6 && y===startCastle.y0+3) || (x===9 && y===13)) return false;
+    if ((x===startCastle.x0+4 && y===startCastle.y0+3) || (x===VENDOR_TILE.x && y===VENDOR_TILE.y) || (x===9 && y===13)) return false;
 
     // Avoid castles/keeps + a buffer so early game feels safe
     if (inRectMargin(x,y, startCastle, 6)) return false;
+    if (inRectMargin(x,y, vendorShop, 4)) return false;
     if (inRectMargin(x,y, southKeep,  6)) return false;
 
     // Avoid the main path tile itself (looks goofy)
@@ -1221,11 +1373,12 @@ const DEFAULT_MOB_LEVELS = {
     placeMob("rat", x, y);
   }
 
-  function findNestTile(kind){
+  function findNestTile(kind, zoneFn=null){
     for (let a=0; a<5000; a++){
       const x = randInt(rng, 0, W-1);
       const y = randInt(rng, 0, H-1);
       if (!tileOkForRat(x,y)) continue;
+      if (zoneFn && !zoneFn(x,y)) continue;
 
       if (kind === "river"){
         // next to water tiles (riverbanks), not on bridges/path
@@ -1240,72 +1393,87 @@ const DEFAULT_MOB_LEVELS = {
     return null;
   }
 
-  function spawnAround(cx,cy, count){
+  function spawnAround(cx,cy, count, opts={}){
+    const spread = Number.isFinite(opts.spread) ? Math.max(1, opts.spread|0) : 3;
+    const minDistBase = Number.isFinite(opts.minDist) ? Math.max(0.8, opts.minDist) : 2.1;
+    const zoneFn = (typeof opts.zoneFn === "function") ? opts.zoneFn : null;
+
     let placed = 0;
-    for (let a=0; a<count*60 && placed<count; a++){
-      const x = cx + randInt(rng, -3, 3);
-      const y = cy + randInt(rng, -3, 3);
+    for (let a=0; a<count*90 && placed<count; a++){
+      const x = cx + randInt(rng, -spread, spread);
+      const y = cy + randInt(rng, -spread, spread);
       if (!tileOkForRat(x,y)) continue;
-      if (tooCloseToExistingRat(x,y, 3.0)) continue;
+      if (zoneFn && !zoneFn(x,y)) continue;
+
+      // Slight random spacing variance keeps packs from looking too grid-like.
+      const desiredDist = minDistBase + rng()*0.65;
+      if (tooCloseToExistingRat(x,y, desiredDist)) continue;
+
       spawnRat(x,y);
       placed++;
     }
     return placed;
   }
 
-  // 3 nests: 2 riverbank nests, 1 woodland nest
-  const nests = [
-    { kind:"river", count: 2 },
-    { kind:"river", count: 2 },
-    { kind:"woods", count: 3 },
-  ];
-
-  for (const n of nests){
-    const c = findNestTile(n.kind);
-    if (!c) continue;
-    spawnAround(c.x, c.y, n.count);
+  function findClusterSeed(cx, cy, radius, zoneFn=null){
+    for (let a=0; a<2600; a++){
+      const x = cx + randInt(rng, -radius, radius);
+      const y = cy + randInt(rng, -radius, radius);
+      if (zoneFn && !zoneFn(x,y)) continue;
+      if (!tileOkForRat(x,y)) continue;
+      return {x,y};
+    }
+    return null;
   }
 
-  // Top off if constraints were tight
-  const TARGET_RATS = 7;
-  for (let a=0; a<9000 && mobs.length < TARGET_RATS; a++){
+  // Keep most rats near a starter-adjacent training ground while preserving
+  // a couple of natural strays around the world.
+  const TRAINING_TARGET = 5;
+  const TOTAL_TARGET = 7;
+  const southOfRiver = (x,y) => y >= (RIVER_Y + 2);
+  const trainingCenterX = clamp((startCastle.gateX ?? (startCastle.x0 + Math.floor(startCastle.w / 2))) + 1, 0, W-1);
+  const trainingCenterY = clamp(RIVER_Y + 4, 0, H-1);
+  const inTrainingZone = (x,y) => (
+    southOfRiver(x,y) &&
+    Math.abs(x - trainingCenterX) <= 9 &&
+    Math.abs(y - trainingCenterY) <= 6
+  );
+
+  const trainingSeed = findClusterSeed(trainingCenterX, trainingCenterY, 8, inTrainingZone) || findNestTile("river", southOfRiver);
+  if (trainingSeed){
+    const subSeed = findClusterSeed(trainingSeed.x + randInt(rng, -3, 3), trainingSeed.y + randInt(rng, -3, 3), 4, inTrainingZone) || trainingSeed;
+    spawnAround(trainingSeed.x, trainingSeed.y, 3, { spread: 3, minDist: 1.7, zoneFn: inTrainingZone });
+    spawnAround(subSeed.x, subSeed.y, 2, { spread: 3, minDist: 1.9, zoneFn: inTrainingZone });
+  }
+
+  // Top off inside the training zone if obstacles blocked initial packs.
+  for (let a=0; a<2400 && mobs.length < TRAINING_TARGET; a++){
+    const c = findClusterSeed(trainingCenterX, trainingCenterY, 9, inTrainingZone);
+    if (!c) break;
+    spawnAround(c.x, c.y, 1, { spread: 2, minDist: 1.8, zoneFn: inTrainingZone });
+  }
+
+  // Add a small number of world strays so the world doesn't feel staged.
+  const outskirts = [
+    { kind: "river", count: 1 },
+    { kind: "woods", count: 1 },
+  ];
+  for (const n of outskirts){
+    if (mobs.length >= TOTAL_TARGET) break;
+    const c = findNestTile(n.kind, southOfRiver);
+    if (!c) continue;
+    spawnAround(c.x, c.y, n.count, { spread: 4, minDist: 2.4, zoneFn: southOfRiver });
+  }
+
+  // Global top-off as a safety net.
+  for (let a=0; a<9000 && mobs.length < TOTAL_TARGET; a++){
     const x = randInt(rng, 0, W-1);
-    const y = randInt(rng, 0, H-1);
+    const y = randInt(rng, RIVER_Y + 2, H-1);
     if (!tileOkForRat(x,y)) continue;
-    if (tooCloseToExistingRat(x,y, 3.0)) continue;
+    if (!southOfRiver(x,y)) continue;
+    if (tooCloseToExistingRat(x,y, 2.4 + rng()*0.6)) continue;
     spawnRat(x,y);
   }
-  // --- Manual tweak: move specific rat ---
-  (function(){
-    const fromX=7,  fromY=27;
-    const toX=13,   toY=32;
-
-    const fromKey = keyXY(fromX, fromY);
-    const toKey   = keyXY(toX, toY);
-
-    const fromRat = mobs.find(m => m.alive && m.type==="rat" && m.x===fromX && m.y===fromY);
-    if (!fromRat) return;
-
-    // If a rat already exists at the destination, remove it so we can place this one there
-    const toIdx = mobs.findIndex(m => m.alive && m.type==="rat" && m.x===toX && m.y===toY);
-    if (toIdx >= 0){
-      mobs.splice(toIdx, 1);
-      used.delete(toKey);
-    }
-
-    // Free the old spot in the "used" set
-    used.delete(fromKey);
-
-    // Only move if the destination is valid under current spawn rules
-    if (tileOkForRat(toX, toY)){
-      fromRat.x = toX;
-      fromRat.y = toY;
-      used.add(toKey);
-    } else {
-      // Put it back (and restore used) if destination isn't valid
-      used.add(fromKey);
-    }
-  })();
 
 }
 
@@ -1314,7 +1482,7 @@ const DEFAULT_MOB_LEVELS = {
     const bx = startCastle.x0 + 4;
     const by = startCastle.y0 + 3;
     placeInteractable("bank", bx, by);
-placeInteractable("vendor", bx + 2, by);
+    placeInteractable("vendor", VENDOR_TILE.x, VENDOR_TILE.y);
 // Fishing spots on the river near the starter castle
 placeInteractable("fish", 6, RIVER_Y);
 placeInteractable("fish", 10, RIVER_Y + 1);
@@ -2729,7 +2897,7 @@ player.invulnUntil = now() + 1200;
   };
 
   // ---------- Entity lookup ----------
- function getEntityAt(tx, ty){
+function getEntityAt(tx, ty){
   // Interactables
   const idx = interactables.findIndex(it => it.x===tx && it.y===ty);
   if (idx !== -1){
@@ -2742,6 +2910,12 @@ if (it.type === "furnace") return { kind:"furnace", index: idx, label:"Furnace",
 if (it.type === "anvil")   return { kind:"anvil", index: idx, label:"Anvil", x:it.x, y:it.y };
 
 
+  }
+
+  // Visual decorations (hover / examine only)
+  const decor = getDecorAt(tx, ty);
+  if (decor){
+    return { kind:"decor", label: decor.label, decorId: decor.id, x: tx, y: ty };
   }
 
   // Mobs
@@ -2775,15 +2949,23 @@ if (it.type === "anvil")   return { kind:"anvil", index: idx, label:"Anvil", x:i
 if (ent.kind==="fish") chatLine(`<span class="muted">A bubbling fishing spot in the river.</span>`);
 if (ent.kind==="furnace") chatLine(`<span class="muted">A sturdy furnace. Smithing is coming soon.</span>`);
 if (ent.kind==="anvil")   chatLine(`<span class="muted">A heavy anvil. You'll use it to forge gear later.</span>`);
+if (ent.kind==="decor"){
+  const msg = DECOR_EXAMINE_TEXT[ent.decorId] ?? `A ${String(ent.label || "decoration").toLowerCase()}.`;
+  chatLine(`<span class="muted">${msg}</span>`);
+}
 
 
 
-    
+
 
   }
 
   function beginInteraction(ent){
     closeCtxMenu();
+    if (ent?.kind === "decor"){
+      examineEntity(ent);
+      return;
+    }
     player.action = { type:"idle", endsAt:0, total:0, label:"Idle", onComplete:null };
     player.target = { kind: ent.kind, index: ent.index };
     ensureWalkIntoRangeAndAct();
@@ -2795,7 +2977,13 @@ if (ent.kind==="anvil")   chatLine(`<span class="muted">A heavy anvil. You'll us
     // World clicks do not place fires directly.
 
     const ent = getEntityAt(tileX,tileY);
-    if (ent){ beginInteraction(ent); return; }
+    if (ent){
+      // Decorations are hover/examine-only; left-click should still move.
+      if (ent.kind !== "decor"){
+        beginInteraction(ent);
+        return;
+      }
+    }
 
     player.target = null;
     player.action = {type:"idle", endsAt:0, total:0, label:"Idle", onComplete:null};
@@ -3971,50 +4159,128 @@ if (item.ammo){
   }
 
   function drawRat(m){
-     const cx = (Number.isFinite(m.px) ? m.px : (m.x*TILE+TILE/2));
-    const cy = (Number.isFinite(m.py) ? m.py : (m.y*TILE+TILE/2));
-    const px = cx - TILE/2;
-    const py = cy - TILE/2;
+    const baseCx = (Number.isFinite(m.px) ? m.px : (m.x*TILE+TILE/2));
+    const baseCy = (Number.isFinite(m.py) ? m.py : (m.y*TILE+TILE/2));
+    const px = baseCx - TILE/2;
+    const py = baseCy - TILE/2;
 
+    // Keep a stable left/right facing based on smooth motion.
+    const prevCx = Number.isFinite(m._prevDrawCx) ? m._prevDrawCx : baseCx;
+    const dx = baseCx - prevCx;
+    if (Math.abs(dx) > 0.06) m._faceX = (dx >= 0) ? 1 : -1;
+    if (!Number.isFinite(m._faceX)) m._faceX = 1;
+    m._prevDrawCx = baseCx;
+    const face = m._faceX;
 
-    ctx.strokeStyle="rgba(250, 204, 211, .9)";
-    ctx.lineWidth=3;
+    const t = now();
+    const bob = Math.sin(t*0.013 + m.x*0.91 + m.y*0.53) * 0.7;
+    const tailWag = Math.sin(t*0.02 + m.x*0.73 + m.y*0.42) * 2.4;
+    const cx = baseCx;
+    const cy = baseCy + bob;
+    const headX = cx + face*9.6;
+
+    ctx.save();
+
+    // Ground shadow
+    ctx.fillStyle = "rgba(0,0,0,.24)";
     ctx.beginPath();
-    ctx.moveTo(cx-10, cy+6);
-    ctx.quadraticCurveTo(cx-18, cy+14, cx-24, cy+18);
+    ctx.ellipse(cx - face*1.2, cy + 11.5, 11, 4.8, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Tail (behind body)
+    ctx.strokeStyle = "#f7a8b8";
+    ctx.lineCap = "round";
+    ctx.lineWidth = 3.4;
+    ctx.beginPath();
+    ctx.moveTo(cx - face*9.5, cy + 4.5);
+    ctx.quadraticCurveTo(cx - face*(17 + tailWag), cy + 9.5, cx - face*(23 + tailWag*0.45), cy + 15.5);
     ctx.stroke();
-    ctx.lineWidth=1;
-
-    ctx.fillStyle="#d1d5db";
+    ctx.strokeStyle = "rgba(255,255,255,.35)";
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.ellipse(cx, cy+2, 12, 8, 0, 0, Math.PI*2);
+    ctx.moveTo(cx - face*10.5, cy + 3.9);
+    ctx.quadraticCurveTo(cx - face*(16.2 + tailWag), cy + 8.2, cx - face*(21.4 + tailWag*0.45), cy + 13.8);
+    ctx.stroke();
+
+    // Body
+    ctx.fillStyle = "#8e97a3";
+    ctx.beginPath();
+    ctx.ellipse(cx - face*0.9, cy + 3.2, 12.3, 8.1, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.2)";
+    ctx.beginPath();
+    ctx.ellipse(cx - face*3.4, cy + 0.8, 5.4, 2.5, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.35)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.ellipse(cx - face*0.9, cy + 3.2, 12.3, 8.1, 0, 0, Math.PI*2);
+    ctx.stroke();
+
+    // Legs
+    ctx.fillStyle = "#66707d";
+    ctx.fillRect(cx - face*6.5, cy + 8.3, 3.2, 2.1);
+    ctx.fillRect(cx + face*1.4, cy + 8.4, 3.1, 2.0);
+
+    // Head
+    ctx.fillStyle = "#9aa3ae";
+    ctx.beginPath();
+    ctx.ellipse(headX, cy - 1.3, 6.5, 5.6, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.35)";
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.ellipse(headX, cy - 1.3, 6.5, 5.6, 0, 0, Math.PI*2);
+    ctx.stroke();
+
+    // Ears
+    ctx.fillStyle = "#8f98a4";
+    ctx.beginPath();
+    ctx.arc(headX - face*2.1, cy - 6.4, 2.8, 0, Math.PI*2);
+    ctx.arc(headX + face*1.8, cy - 6.1, 2.5, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = "#f2a0b3";
+    ctx.beginPath();
+    ctx.arc(headX - face*2.1, cy - 6.4, 1.5, 0, Math.PI*2);
+    ctx.arc(headX + face*1.8, cy - 6.1, 1.3, 0, Math.PI*2);
     ctx.fill();
 
+    // Snout + nose
+    ctx.fillStyle = "#cfd5dc";
     ctx.beginPath();
-    ctx.arc(cx+10, cy-2, 6, 0, Math.PI*2);
+    ctx.ellipse(headX + face*3.8, cy + 0.2, 2.9, 2.1, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = "#fb7185";
+    ctx.beginPath();
+    ctx.arc(headX + face*6.1, cy - 0.3, 1.2, 0, Math.PI*2);
     ctx.fill();
 
-    ctx.fillStyle="#fda4af";
+    // Eye + whiskers
+    ctx.fillStyle = "rgba(0,0,0,.75)";
     ctx.beginPath();
-    ctx.arc(cx+13, cy-7, 2.5, 0, Math.PI*2);
-    ctx.arc(cx+8, cy-8, 2.2, 0, Math.PI*2);
+    ctx.arc(headX + face*1.8, cy - 2.1, 1.1, 0, Math.PI*2);
     ctx.fill();
-
-    ctx.fillStyle="rgba(0,0,0,.6)";
+    ctx.strokeStyle = "rgba(255, 231, 235, .75)";
+    ctx.lineWidth = 0.9;
     ctx.beginPath();
-    ctx.arc(cx+12, cy-3, 1.2, 0, Math.PI*2);
-    ctx.fill();
+    ctx.moveTo(headX + face*4.6, cy + 0.1);
+    ctx.lineTo(headX + face*8.3, cy - 1.3);
+    ctx.moveTo(headX + face*4.3, cy + 1.0);
+    ctx.lineTo(headX + face*8.1, cy + 1.2);
+    ctx.moveTo(headX + face*4.1, cy + 1.8);
+    ctx.lineTo(headX + face*7.7, cy + 3.0);
+    ctx.stroke();
 
-    ctx.fillStyle="#fb7185";
-    ctx.beginPath();
-    ctx.arc(cx+16, cy-1, 1.3, 0, Math.PI*2);
-    ctx.fill();
-
-    ctx.fillStyle="rgba(0,0,0,.5)";
-     ctx.fillRect(px+6, py+4, TILE-12, 5);
-    ctx.fillStyle="#fb7185";
+    // HP bar
+    ctx.fillStyle = "rgba(0,0,0,.56)";
+    ctx.fillRect(px+6, py+3, TILE-12, 5);
+    ctx.fillStyle = "#fb7185";
     const w = clamp((m.hp/m.maxHp)*(TILE-12), 0, TILE-12);
-    ctx.fillRect(px+6, py+4, w, 5);
+    ctx.fillRect(px+6, py+3, w, 5);
+    ctx.fillStyle = "rgba(255,255,255,.25)";
+    ctx.fillRect(px+6, py+3, w, 1);
+
+    ctx.restore();
   }
 
   function drawMobs(){
@@ -4037,6 +4303,87 @@ if (item.ammo){
     ctx.fillRect(px+19, py+8, 3, 18);
     ctx.fillStyle="#fbbf24";
     ctx.fillRect(px+15, py+16, 2, 6);
+  }
+
+  function drawVendorNpc(x, y){
+    const t = now();
+    const cx = x * TILE + TILE / 2;
+    const cy = y * TILE + TILE / 2 + Math.sin(t * 0.006 + x * 0.9 + y * 0.7) * 0.35;
+    const sway = Math.sin(t * 0.004 + x * 1.1 + y * 0.8) * 0.7;
+    ctx.save();
+
+    // Ground shadow so the NPC sits in the world like the player sprite.
+    ctx.fillStyle = "rgba(0,0,0,.26)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 13, 9.5, 4.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Boots and legs.
+    ctx.fillStyle = "#111827";
+    ctx.fillRect(cx - 8, cy + 10, 6, 3);
+    ctx.fillRect(cx + 2, cy + 10, 6, 3);
+
+    // Torso/robe.
+    ctx.fillStyle = "rgba(30,41,59,.9)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 5.8, 7.4, 8.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.45)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 5.8, 7.4, 8.8, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Head.
+    const headY = cy - 6;
+    ctx.fillStyle = "#f2c9a0";
+    ctx.beginPath();
+    ctx.arc(cx, headY, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.45)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, headY, 7, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Hood/hair tint to match the player's top-half accent treatment.
+    ctx.save();
+    ctx.globalAlpha = 0.62;
+    ctx.fillStyle = "#f59e0b";
+    ctx.beginPath();
+    ctx.arc(cx, headY - 1, 7.3, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Eyes and a small smile.
+    ctx.fillStyle = "rgba(0,0,0,.62)";
+    ctx.beginPath();
+    ctx.arc(cx - 2.2 + sway * 0.15, headY - 1.1, 1, 0, Math.PI * 2);
+    ctx.arc(cx + 2.2 + sway * 0.15, headY - 1.1, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.45)";
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.arc(cx, headY + 1.4, 1.6, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+
+    // Merchant accents: belt and side satchel.
+    ctx.strokeStyle = "rgba(251,191,36,.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 5, cy + 7);
+    ctx.lineTo(cx + 5, cy + 7);
+    ctx.stroke();
+
+    ctx.fillStyle = "#7c2d12";
+    ctx.beginPath();
+    ctx.ellipse(cx + 7.8, cy + 5.2, 2.7, 3.5, 0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#facc15";
+    ctx.beginPath();
+    ctx.arc(cx + 8.4, cy + 5.1, 0.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
  function drawFurnace(x,y){
@@ -4102,7 +4449,405 @@ function drawAnvil(x,y){
   ctx.fillRect(px+10, py+18, 12, 1);
 }
 
+function drawVendorShopDecor(){
+  const {startX,startY,endX,endY} = visibleTileBounds();
+  const x0 = vendorShop.x0 | 0;
+  const y0 = vendorShop.y0 | 0;
+  const w = vendorShop.w | 0;
+  const h = vendorShop.h | 0;
+  const x1 = x0 + w - 1;
+  const y1 = y0 + h - 1;
+  if (x1 < startX - 2 || x0 > endX + 2 || y1 < startY - 2 || y0 > endY + 2) return;
+
+  const gateX = x0 + Math.floor(w / 2);
+  const t = now();
+  ctx.save();
+
+  function tileTopLeft(tx, ty){
+    return { px: tx * TILE, py: ty * TILE };
+  }
+  function drawBush(tx, ty, tone=0){
+    const { px, py } = tileTopLeft(tx, ty);
+    const sway = Math.sin(t * 0.005 + tx * 0.8 + ty * 1.2) * 0.7;
+    const g1 = tone ? "#2f8f4b" : "#2b7f43";
+    const g2 = tone ? "#37a358" : "#329652";
+
+    ctx.fillStyle = "rgba(0,0,0,.22)";
+    ctx.beginPath();
+    ctx.ellipse(px + 16, py + 25, 10, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = g1;
+    ctx.beginPath();
+    ctx.arc(px + 11 + sway * 0.25, py + 16, 6.2, 0, Math.PI * 2);
+    ctx.arc(px + 20 + sway * 0.35, py + 15.5, 7.2, 0, Math.PI * 2);
+    ctx.arc(px + 16 + sway * 0.15, py + 12, 7.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.arc(px + 14 + sway * 0.2, py + 13, 3.3, 0, Math.PI * 2);
+    ctx.arc(px + 19 + sway * 0.2, py + 12.5, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function drawFlowerPatch(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "#2c6e3f";
+    ctx.fillRect(px + 10, py + 18, 2, 7);
+    ctx.fillRect(px + 15, py + 16, 2, 8);
+    ctx.fillRect(px + 20, py + 18, 2, 7);
+
+    ctx.fillStyle = "#f472b6";
+    ctx.fillRect(px + 9, py + 16, 3, 3);
+    ctx.fillRect(px + 19, py + 16, 3, 3);
+    ctx.fillStyle = "#fde047";
+    ctx.fillRect(px + 14, py + 14, 3, 3);
+    ctx.fillStyle = "#93c5fd";
+    ctx.fillRect(px + 12, py + 19, 2, 2);
+    ctx.fillRect(px + 18, py + 20, 2, 2);
+  }
+  function drawCrate(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "#8b5a2b";
+    ctx.fillRect(px + 8, py + 13, 16, 13);
+    ctx.fillStyle = "#a16207";
+    ctx.fillRect(px + 8, py + 11, 16, 3);
+    ctx.strokeStyle = "rgba(0,0,0,.28)";
+    ctx.strokeRect(px + 8.5, py + 13.5, 15, 12);
+    ctx.strokeStyle = "rgba(255,255,255,.12)";
+    ctx.beginPath();
+    ctx.moveTo(px + 10, py + 15);
+    ctx.lineTo(px + 22, py + 24);
+    ctx.moveTo(px + 22, py + 15);
+    ctx.lineTo(px + 10, py + 24);
+    ctx.stroke();
+  }
+  function drawBarrel(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "#7c4a24";
+    ctx.fillRect(px + 11, py + 12, 10, 14);
+    ctx.fillStyle = "#92572c";
+    ctx.fillRect(px + 11, py + 12, 10, 2);
+    ctx.fillRect(px + 11, py + 24, 10, 2);
+    ctx.fillStyle = "rgba(0,0,0,.28)";
+    ctx.fillRect(px + 11, py + 16, 10, 1.5);
+    ctx.fillRect(px + 11, py + 20, 10, 1.5);
+  }
+  function drawSignpost(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "#7c4a24";
+    ctx.fillRect(px + 15, py + 8, 3, 19);
+    ctx.fillStyle = "#a16207";
+    ctx.fillRect(px + 6, py + 10, 20, 8);
+    ctx.strokeStyle = "rgba(0,0,0,.34)";
+    ctx.strokeRect(px + 6.5, py + 10.5, 19, 7);
+    ctx.fillStyle = "#fef3c7";
+    ctx.fillRect(px + 9, py + 13, 14, 1.8);
+  }
+  function drawLantern(tx, ty, side=1){
+    const { px, py } = tileTopLeft(tx, ty);
+    const lx = px + (side > 0 ? 24 : 8);
+    const ly = py + 8;
+    const a = 0.22 + 0.1 * Math.sin(t * 0.01 + tx * 2.3 + ty * 1.9);
+
+    ctx.fillStyle = `rgba(251,191,36,${a})`;
+    ctx.beginPath();
+    ctx.arc(lx, ly + 7, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#fbbf24";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(lx - 2, ly - 4);
+    ctx.lineTo(lx + 2, ly - 4);
+    ctx.moveTo(lx, ly - 4);
+    ctx.lineTo(lx, ly + 2);
+    ctx.stroke();
+    ctx.fillStyle = "#fde68a";
+    ctx.fillRect(lx - 2, ly + 2, 4, 4);
+  }
+  function drawWallTorch(tx, ty, side=1){
+    const { px, py } = tileTopLeft(tx, ty);
+    const wx = px + (side > 0 ? 23 : 9);
+    const wy = py + 10;
+    const flick = 0.65 + 0.35 * Math.sin(t * 0.014 + tx * 1.9 + ty * 1.3);
+
+    ctx.fillStyle = `rgba(251,191,36,${0.16 * flick})`;
+    ctx.beginPath();
+    ctx.arc(wx, wy + 4, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#fbbf24";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(wx - 2, wy - 3);
+    ctx.lineTo(wx + 2, wy - 3);
+    ctx.moveTo(wx, wy - 3);
+    ctx.lineTo(wx, wy + 1.8);
+    ctx.stroke();
+
+    ctx.fillStyle = `rgba(249,115,22,${0.85 * flick})`;
+    ctx.beginPath();
+    ctx.ellipse(wx, wy + 2, 1.9, 3.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(251,191,36,${0.95 * flick})`;
+    ctx.beginPath();
+    ctx.ellipse(wx, wy + 2.4, 1.2, 1.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function drawRunnerRug(tx, yA, yB){
+    const minY = Math.min(yA, yB);
+    const maxY = Math.max(yA, yB);
+    const px = tx * TILE;
+    const py = minY * TILE;
+    const rugTop = py + 3;
+    const rugHeight = (maxY - minY + 1) * TILE - 6;
+    ctx.fillStyle = "#4a2a1f";
+    ctx.fillRect(px + 10, rugTop, 12, rugHeight);
+    ctx.fillStyle = "#7c3f2a";
+    ctx.fillRect(px + 11, rugTop + 1, 10, rugHeight - 2);
+    ctx.fillStyle = "rgba(214,169,106,.55)";
+    ctx.fillRect(px + 11, rugTop + 4, 10, 1.6);
+    ctx.fillRect(px + 11, rugTop + rugHeight - 6, 10, 1.6);
+  }
+  function drawShelfStock(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "#6b4423";
+    ctx.fillRect(px + 7, py + 8, 18, 2.5);
+    ctx.fillRect(px + 7, py + 13, 18, 2.5);
+    ctx.fillStyle = "rgba(0,0,0,.28)";
+    ctx.fillRect(px + 8, py + 15.5, 16, 1);
+
+    const bottleColors = ["#93c5fd", "#fca5a5", "#86efac", "#fde68a"];
+    for (let i = 0; i < 4; i++){
+      ctx.fillStyle = bottleColors[i];
+      ctx.fillRect(px + 9 + i * 4, py + 9, 2.2, 3.2);
+      ctx.fillRect(px + 9 + i * 4, py + 14, 2.2, 3.2);
+    }
+  }
+  function drawCounterDisplay(tx, ty, tone=0){
+    const { px, py } = tileTopLeft(tx, ty);
+    const top = tone ? "#9a6b38" : "#8b5a2b";
+    const base = tone ? "#7c4a24" : "#6f411f";
+    ctx.fillStyle = "rgba(0,0,0,.22)";
+    ctx.fillRect(px + 7, py + 24, 18, 2);
+    ctx.fillStyle = base;
+    ctx.fillRect(px + 8, py + 14, 16, 10);
+    ctx.fillStyle = top;
+    ctx.fillRect(px + 7, py + 11, 18, 4);
+    ctx.strokeStyle = "rgba(0,0,0,.26)";
+    ctx.strokeRect(px + 8.5, py + 14.5, 15, 9);
+  }
+  const ix0 = x0 + 1;
+  const ix1 = x1 - 1;
+  const iy0 = y0 + 1;
+  const iy1 = y1 - 1;
+
+  // Interior dressing: keep center lane open from door to vendor.
+  drawRunnerRug(gateX, iy0 + 1, iy1);
+  drawWallTorch(ix1, iy0, 1);
+  drawShelfStock(ix1 - 1, iy0);
+  drawCounterDisplay(ix1, iy0 + 2, 1);
+  drawBarrel(ix1, iy1);
+
+  // Exterior greenery and flowering bits.
+  drawBush(x0 - 1, y1 - 1, 1);
+  drawBush(x1 + 1, y0 + 1, 1);
+  drawFlowerPatch(x1 + 2, y0 + 2);
+
+  // Merchant props.
+  drawCrate(x1 + 1, y1);
+  drawBarrel(x0 - 1, y1);
+  drawSignpost(gateX + 1, y1 + 2);
+  drawLantern(gateX + 1, y1, 1);
+
+  ctx.restore();
+}
+
+function drawStarterCastleDecor(){
+  const {startX,startY,endX,endY} = visibleTileBounds();
+  const x0 = startCastle.x0 | 0;
+  const y0 = startCastle.y0 | 0;
+  const w = startCastle.w | 0;
+  const h = startCastle.h | 0;
+  const x1 = x0 + w - 1;
+  const y1 = y0 + h - 1;
+  if (x1 < startX - 2 || x0 > endX + 2 || y1 < startY - 2 || y0 > endY + 2) return;
+
+  const gateX = (startCastle.gateX ?? (x0 + Math.floor(w / 2))) | 0;
+  const t = now();
+  ctx.save();
+
+  function tileTopLeft(tx, ty){
+    return { px: tx * TILE, py: ty * TILE };
+  }
+  function drawWallTorch(tx, ty, side=1){
+    const { px, py } = tileTopLeft(tx, ty);
+    const wx = px + (side > 0 ? 23 : 9);
+    const wy = py + 10;
+    const flick = 0.65 + 0.35 * Math.sin(t * 0.014 + tx * 2.1 + ty * 1.2);
+
+    ctx.fillStyle = `rgba(251,191,36,${0.14 * flick})`;
+    ctx.beginPath();
+    ctx.arc(wx, wy + 4, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#fbbf24";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(wx - 2, wy - 3);
+    ctx.lineTo(wx + 2, wy - 3);
+    ctx.moveTo(wx, wy - 3);
+    ctx.lineTo(wx, wy + 1.8);
+    ctx.stroke();
+
+    ctx.fillStyle = `rgba(249,115,22,${0.85 * flick})`;
+    ctx.beginPath();
+    ctx.ellipse(wx, wy + 2, 1.8, 2.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(251,191,36,${0.95 * flick})`;
+    ctx.beginPath();
+    ctx.ellipse(wx, wy + 2.3, 1.1, 1.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function drawRunnerRug(tx, yA, yB){
+    const minY = Math.min(yA, yB);
+    const maxY = Math.max(yA, yB);
+    const px = tx * TILE;
+    const py = minY * TILE;
+    const rugTop = py + 2;
+    const rugHeight = (maxY - minY + 1) * TILE - 4;
+    ctx.fillStyle = "#4a2a1f";
+    ctx.fillRect(px + 9, rugTop, 14, rugHeight);
+    ctx.fillStyle = "#7c3f2a";
+    ctx.fillRect(px + 10, rugTop + 1, 12, rugHeight - 2);
+    ctx.fillStyle = "rgba(214,169,106,.58)";
+    ctx.fillRect(px + 10, rugTop + 4, 12, 1.7);
+    ctx.fillRect(px + 10, rugTop + rugHeight - 6, 12, 1.7);
+  }
+  function drawWeaponRack(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "#5b3a1d";
+    ctx.fillRect(px + 7, py + 10, 18, 3);
+    ctx.fillStyle = "#6b7280";
+    ctx.fillRect(px + 11, py + 13, 2, 9);
+    ctx.fillRect(px + 18, py + 13, 2, 9);
+    ctx.fillStyle = "#d1d5db";
+    ctx.fillRect(px + 10, py + 11, 4, 2);
+    ctx.fillRect(px + 17, py + 11, 4, 2);
+  }
+  function drawSmallTable(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "rgba(0,0,0,.2)";
+    ctx.fillRect(px + 7, py + 23, 18, 2);
+    ctx.fillStyle = "#8b5a2b";
+    ctx.fillRect(px + 8, py + 14, 16, 9);
+    ctx.fillStyle = "#a16207";
+    ctx.fillRect(px + 7, py + 12, 18, 3);
+    ctx.fillStyle = "#facc15";
+    ctx.fillRect(px + 11, py + 13, 2, 2);
+    ctx.fillRect(px + 16, py + 13, 2, 2);
+    ctx.fillRect(px + 20, py + 13, 2, 2);
+  }
+  function drawBookshelf(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "#5b3a1d";
+    ctx.fillRect(px + 7, py + 8, 18, 15);
+    ctx.fillStyle = "#7c4a24";
+    ctx.fillRect(px + 8, py + 9, 16, 2);
+    ctx.fillRect(px + 8, py + 14, 16, 2);
+    ctx.fillRect(px + 8, py + 19, 16, 2);
+
+    const colors = ["#60a5fa", "#fca5a5", "#86efac", "#fde68a", "#c4b5fd"];
+    for (let i = 0; i < 5; i++){
+      ctx.fillStyle = colors[i];
+      ctx.fillRect(px + 9 + i * 3, py + 10, 2, 3.5);
+      ctx.fillRect(px + 9 + i * 3, py + 15, 2, 3.5);
+      ctx.fillRect(px + 9 + i * 3, py + 20, 2, 2.5);
+    }
+  }
+  function drawArmorStand(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "rgba(0,0,0,.22)";
+    ctx.fillRect(px + 11, py + 24, 10, 2);
+    ctx.fillStyle = "#7c4a24";
+    ctx.fillRect(px + 15, py + 14, 2, 10);
+    ctx.fillStyle = "#9ca3af";
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 11, 3.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(px + 11, py + 15, 10, 7);
+    ctx.fillStyle = "#d1d5db";
+    ctx.fillRect(px + 13, py + 16, 6, 1.5);
+  }
+  function drawCandleStand(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    const flick = 0.7 + 0.3 * Math.sin(t * 0.017 + tx * 1.1 + ty * 1.6);
+    ctx.fillStyle = "#7c4a24";
+    ctx.fillRect(px + 15, py + 14, 2, 10);
+    ctx.fillRect(px + 12, py + 23, 8, 2);
+    ctx.fillStyle = "#fbbf24";
+    ctx.fillRect(px + 14.5, py + 12, 3, 2);
+    ctx.fillStyle = `rgba(251,191,36,${0.28 * flick})`;
+    ctx.beginPath();
+    ctx.arc(px + 16, py + 12, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(249,115,22,${0.8 * flick})`;
+    ctx.beginPath();
+    ctx.ellipse(px + 16, py + 10.3, 1.7, 2.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function drawCrest(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "#1f2937";
+    ctx.fillRect(px + 10, py + 8, 12, 12);
+    ctx.strokeStyle = "#fbbf24";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(px + 10.7, py + 8.7, 10.6, 10.6);
+    ctx.fillStyle = "#facc15";
+    ctx.beginPath();
+    ctx.moveTo(px + 16, py + 10.5);
+    ctx.lineTo(px + 19, py + 13.3);
+    ctx.lineTo(px + 17.7, py + 17.5);
+    ctx.lineTo(px + 14.3, py + 17.5);
+    ctx.lineTo(px + 13, py + 13.3);
+    ctx.closePath();
+    ctx.fill();
+  }
+  function drawStoneBench(tx, ty){
+    const { px, py } = tileTopLeft(tx, ty);
+    ctx.fillStyle = "#6b7280";
+    ctx.fillRect(px + 7, py + 18, 18, 6);
+    ctx.fillStyle = "#9ca3af";
+    ctx.fillRect(px + 7, py + 16, 18, 3);
+    ctx.fillStyle = "rgba(0,0,0,.2)";
+    ctx.fillRect(px + 8, py + 23, 16, 1.5);
+  }
+
+  const ix0 = x0 + 1;
+  const ix1 = x1 - 1;
+  const iy0 = y0 + 1;
+  const iy1 = y1 - 1;
+
+  // Interior accents.
+  drawRunnerRug(gateX, iy0 + 1, iy1);
+  drawWallTorch(ix0 + 2, iy0, -1);
+  drawWallTorch(ix1 - 2, iy0, 1);
+  drawWeaponRack(ix0, iy0 + 2);
+  drawBookshelf(ix1 - 1, iy0 + 1);
+  drawSmallTable(gateX, iy0 + 1);
+
+  // Entrance accents outside the gate.
+  drawStoneBench(gateX - 2, y1 + 1);
+  drawWallTorch(gateX - 1, y1, -1);
+  drawWallTorch(gateX + 1, y1, 1);
+
+  ctx.restore();
+}
+
  function drawInteractables(){
+    drawStarterCastleDecor();
+    drawVendorShopDecor();
     const {startX,startY,endX,endY}=visibleTileBounds();
     for (const it of interactables){
       if (it.x<startX-1 || it.x>endX+1 || it.y<startY-1 || it.y>endY+1) continue;
@@ -4206,40 +4951,7 @@ if (it.type === "fish"){
 }
 
 
-if (it.type === "vendor"){
-  // vendor marker (draw in WORLD coords; camera/zoom already handled by ctx transform)
-  const cx = it.x * TILE + TILE/2;
-  const cy = it.y * TILE + TILE/2;
-
-  ctx.save();
-  ctx.translate(cx, cy);
-
-  ctx.beginPath();
-  ctx.arc(0, 0, 9, 0, Math.PI*2);
-  ctx.fillStyle = "#7c3aed";
-  ctx.fill();
-
-  ctx.fillStyle = "rgba(17,24,39,.95)";
-  ctx.strokeStyle = "rgba(17,24,39,.95)";
-  ctx.lineWidth = 1.6;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  ctx.beginPath();
-  ctx.moveTo(-6, -4);
-  ctx.lineTo(-4, -2);
-  ctx.lineTo(4, -2);
-  ctx.lineTo(3, 3);
-  ctx.lineTo(-3, 3);
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.arc(-2, 5, 1.5, 0, Math.PI*2);
-  ctx.arc(2, 5, 1.5, 0, Math.PI*2);
-  ctx.stroke();
-
-  ctx.restore();
-}
+if (it.type==="vendor") drawVendorNpc(it.x, it.y);
 
     }
   }
@@ -4701,6 +5413,11 @@ function drawPlayerWeapon(cx, cy, fx, fy){
 } else if (ent?.kind==="anvil"){
   opts.push({label:"Use Anvil", onClick:()=>beginInteraction(ent)});
   opts.push({label:"Examine Anvil", onClick:()=>examineEntity(ent)});
+  opts.push({type:"sep"});
+  opts.push({label:"Walk here", onClick:walkHere});
+
+} else if (ent?.kind==="decor"){
+  opts.push({label:`Examine ${ent.label ?? "Decoration"}`, onClick:()=>examineEntity(ent)});
   opts.push({type:"sep"});
   opts.push({label:"Walk here", onClick:walkHere});
 
@@ -5321,8 +6038,10 @@ initWorldSeed();
     renderQuiver();
     renderHPHUD();
 
+    chatLine(`<span class="muted">Tip:</span> Rat training packs are now south of the river. Cross a bridge to reach them early.`);
+    chatLine(`<span class="muted">Tip:</span> The vendor is inside the shop east of the starter castle.`);
     chatLine(`<span class="muted">Tip:</span> Loot auto-picks up when you stand near it. If full, items stay on the ground.`);
-    chatLine(`<span class="muted">Fletching:</span> Right-click <b>Knife</b> → Use, then click a <b>Log</b> to fletch arrows into your quiver.`);
+    chatLine(`<span class="muted">Fletching:</span> Right-click <b>Knife</b> -> Use, then click a <b>Log</b> to fletch arrows into your quiver.`);
   }
 
   // ---------- Bank icon initialization ----------

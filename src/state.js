@@ -27,6 +27,7 @@ function stampCastle(x0, y0, w, h) {
 }
 
 export const startCastle = stampCastle(2, 2, 12, 8);
+export const vendorShop = stampCastle(16, 3, 8, 6);
 export const southKeep = stampCastle(44, 30, 12, 8);
 
 function hash01(x, y, seed = 0) {
@@ -109,7 +110,14 @@ function carvePathPolyline(points, seed) {
 }
 
 const northGate = { x: startCastle.gateX, y: startCastle.gateY };
+const shopGate = { x: vendorShop.gateX, y: vendorShop.gateY + 2 };
 const southGate = { x: southKeep.gateX, y: southKeep.gateY + 2 };
+
+// Starter castle -> vendor shop walkway.
+carvePathPolyline([
+  { x: northGate.x, y: northGate.y + 1 },
+  { x: shopGate.x, y: shopGate.y }
+], 19);
 
 // Starter castle -> north bridge approach.
 carvePathPolyline([
