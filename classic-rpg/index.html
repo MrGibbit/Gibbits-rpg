@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Classic-Inspired RPG Prototype</title>
+<link rel="icon" href="data:,">
+
+<link rel="stylesheet" href="style.css?v=20260213a">
+
+
+</head>
+
+<body>
+<div class="wrap">
+  <div class="gameArea" id="gameArea">
+    <canvas id="c" width="960" height="640"></canvas>
+
+    <!-- HP HUD -->
+    <div class="hudTopLeft">
+      <div class="hpCard">
+        <div class="hpRow">
+          <div id="hudName">Adventurer</div>
+          <div id="hudHPText">HP 30 / 30</div>
+        </div>
+      <div class="coordCard">
+        <div class="coordRow"><span class="coordKey">P</span><span class="coordVal" id="coordPlayer">0, 0</span></div>
+        <div class="coordRow"><span class="coordKey">M</span><span class="coordVal" id="coordMouse">—</span></div>
+      </div>
+
+        <div class="hpBar"><div id="hudHPBar"></div></div>
+        <div class="hpRow" style="margin-top:8px; font-weight:800; color:rgba(169,183,198,.95);">
+          <div id="hudClass">Warrior</div>
+          <div style="display:flex; gap:10px; align-items:center;">
+  <div id="hudGoldText">Gold: 0</div>
+  <div id="hudQuiverText">Quiver: 0</div>
+<div id="hudCombatText">Combat: 3</div>
+
+</div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Top-right HUD: minimap + icons -->
+    <div class="hudTopRight">
+      <div class="iconBar" id="iconBar">
+        <button class="iconBtn" id="iconInv" title="Inventory">🎒</button>
+        <button class="iconBtn" id="iconEqp" title="Equipment">🗡️</button>
+        <button class="iconBtn" id="iconSki" title="Skills">⭐</button>
+        <button class="iconBtn" id="iconBank" title="Bank">🏦</button>
+<button class="iconBtn" id="iconVendor" title="Vendor">🛒</button>
+
+        <button class="iconBtn" id="iconSet" title="Settings">⚙️</button>
+      </div>
+
+      <div class="minimapFrame">
+        <canvas id="minimap" width="150" height="150"></canvas>
+      </div>
+    </div>
+
+    <!-- Windows -->
+    <div class="window hidden" id="winInventory" style="left:18px; top:70px; width:360px; height:420px;">
+      <div class="winHeader" id="hdrInventory">
+        <div class="title">Inventory <span class="pill" id="invCount">0/28</span> <span class="pill" id="invQuiverPill">Quiver: 0</span> <span class="pill" id="invGoldPill">Gold: 0</span></div>
+
+        <button class="winClose" data-close="inventory" title="Close">✕</button>
+      </div>
+      <div class="winBody">
+        <div class="useState">
+          <div class="small" id="invUseState">Use: none</div>
+          <div class="pill" id="invHintPill">Right-click</div>
+        </div>
+        <div class="inv" id="invGrid"></div>
+        <div class="hint">Arrows are stored in your quiver (no inventory slots). Right-click for Equip / Unequip / Use / Drop.</div>
+      </div>
+    </div>
+
+    <div class="window hidden" id="winEquipment" style="left:400px; top:70px; width:340px; height:360px;">
+      <div class="winHeader" id="hdrEquipment">
+        <div class="title">Equipment <span class="pill" id="eqQuiverPill">Quiver: 0</span></div>
+        <button class="winClose" data-close="equipment" title="Close">✕</button>
+      </div>
+      <div class="winBody">
+        <div class="equipGrid">
+          <div class="equipSlot" id="eqWeapon" data-slot="weapon" title="Click to unequip">
+            <div class="slotBox" id="eqWeaponIcon">—</div>
+            <div class="meta">
+              <div class="k">Weapon</div>
+              <div class="v" id="eqWeaponName">Empty</div>
+            </div>
+          </div>
+
+          <div class="equipSlot" id="eqOffhand" data-slot="offhand" title="Click to unequip">
+            <div class="slotBox" id="eqOffhandIcon">—</div>
+            <div class="meta">
+              <div class="k">Offhand</div>
+              <div class="v" id="eqOffhandName">Empty</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hint">
+          Click an equipped slot to unequip. You can also right-click slots to Unequip.
+        </div>
+      </div>
+    </div>
+
+        <div class="window hidden" id="winSkills" style="left:18px; top:70px; width:650px; height:600px;">
+
+
+
+      <div class="winHeader" id="hdrSkills">
+        <div class="title">Skills <span class="pill" id="skillsCombatPill">Combat: 3</span></div>
+
+        <button class="winClose" data-close="skills" title="Close">✕</button>
+      </div>
+      <div class="winBody">
+        <div class="seg" id="meleeTrainingSeg">
+          <div class="segLabel">Melee Training</div>
+          <button class="segBtn" data-melee="accuracy">Accuracy</button>
+          <button class="segBtn" data-melee="power">Power</button>
+          <button class="segBtn" data-melee="defense">Defense</button>
+        </div>
+
+        <div class="skillsGrid" id="skillsGrid"></div>
+
+        <div class="hint">
+          Fast leveling is enabled for testing. Melee damage XP goes to exactly one selected skill above.
+        </div>
+      </div>
+    </div>
+    <div class="window hidden" id="winBank" style="left:760px; top:70px; width:520px; height:520px;">
+      <div class="winHeader" id="hdrBank">
+        <div class="title">Bank <span class="pill" id="bankCount">0/56</span></div>
+        <button class="winClose" data-close="bank" title="Close">✕</button>
+      </div>
+
+      <div class="winBody">
+        <div class="btnrow">
+          <button id="bankDepositAll">Deposit All</button>
+          <button id="bankWithdrawAll">Withdraw All</button>
+          <div class="pill" id="bankHint">Click inv to deposit, click bank to withdraw</div>
+        </div>
+
+        <div class="inv" id="bankGrid" style="grid-template-columns:repeat(7, 1fr);"></div>
+
+        <div class="hint">
+          Bank stacks where allowed. Inventory only stacks ammo (but arrows are stored in quiver).
+        </div>
+      </div>
+    </div>
+
+    <div class="window hidden" id="winVendor" style="left:760px; top:120px; width:520px; height:520px;">
+      <div class="winHeader" id="hdrVendor">
+        <div class="title">Vendor <span class="pill" id="vendorGoldPill">Gold: 0</span></div>
+        <button class="winClose" data-close="vendor" title="Close">✕</button>
+      </div>
+
+      <div class="winBody">
+        <div class="btnrow" style="justify-content:space-between;">
+          <div class="seg">
+            <button class="segBtn active" id="vendorTabBuyBtn" type="button">Buy</button>
+            <button class="segBtn" id="vendorTabSellBtn" type="button">Sell</button>
+          </div>
+          <div class="pill" id="vendorHintPill">Stand next to the vendor to trade</div>
+        </div>
+
+        <div class="shopPane" id="vendorList"></div>
+
+        <div class="hint">
+          Buy items from the vendor, or sell your items for gold.
+        </div>
+      </div>
+    </div>
+
+    <div class="window hidden" id="winShop">
+      <div class="winHeader">
+        <div class="winTitle">Shop</div>
+        <button class="xbtn" id="btnShopClose">✕</button>
+      </div>
+
+      <div class="shopTop">
+        <div class="stat"><b>Gold:</b> <span id="shopGold">0</span></div>
+        <div class="shopTabs">
+          <button class="tabbtn active" id="shopTabBuy">Buy</button>
+          <button class="tabbtn" id="shopTabSell">Sell</button>
+        </div>
+      </div>
+
+      <div class="shopList" id="shopList"></div>
+      <div class="small muted" id="shopHint">Stock refreshes periodically.</div>
+    </div>
+
+    <div class="window hidden" id="winSettings" style="left:760px; top:600px; width:360px; height:300px;">
+      <div class="winHeader" id="hdrSettings">
+        <div class="title">Settings</div>
+        <button class="winClose" data-close="settings" title="Close">✕</button>
+      </div>
+      <div class="winBody">
+        <div class="btnrow">
+          <button id="saveBtn">Save</button>
+          <button id="loadBtn">Load</button>
+          <button id="resetBtn">Reset Save</button>
+        </div>
+
+        <div class="btnrow">
+          <button id="newCharBtn">New Character</button>
+          <button id="deleteCharBtn">Delete Character</button>
+        </div>
+<div class="small" style="margin-top:6px;">Audio</div>
+
+<div class="settingRow">
+  <label class="chk">
+    <input type="checkbox" id="musicToggle">
+    Music
+  </label>
+
+  <input id="musicVol" type="range" min="0" max="100" step="1" value="25" />
+  <span class="pill" id="musicVolLabel">25%</span>
+</div>
+
+        <div class="hint">
+          Mouse wheel: scroll down zooms out, scroll up zooms in. Minimap click moves.
+        </div>
+      </div>
+    </div>
+
+       <!-- Chat HUD -->
+    <div class="hudChat" id="hudChat">
+      <button class="hudChatTab" id="hudChatTab" type="button">Chat</button>
+
+      <div class="hudChatCard" id="hudChatCard">
+        <div class="hudChatHeader" id="hudChatHeader">
+          <div style="font-weight:900;">Chat</div>
+          <div class="hudChatHeaderRight">
+            <button class="hudChatMin" id="hudChatMin" type="button" title="Minimize chat">▁</button>
+          </div>
+        </div>
+
+        <div class="hudChatBody" id="hudChatBody">
+          <div class="chatLog" id="chatLog"></div>
+
+          <div class="chatInputRow">
+            <input id="chatInput" class="chatInput" placeholder="Type (for future dialogue / commands)…" />
+            <button id="chatSend">Send</button>
+          </div>
+        </div>
+
+        <div class="hudChatResize" id="hudChatResize" title="Resize chat"></div>
+      </div>
+    </div>
+
+    <!-- Character creation overlay -->
+    <div id="charOverlay" class="overlay" style="display:none;">
+      <div class="modal">
+        <h2>Character Creation</h2>
+        <p class="sub">Pick a class (sets your color and starting gear).</p>
+
+        <div class="formRow">
+          <label for="charName">Name</label>
+          <input id="charName" type="text" maxlength="14" placeholder="Adventurer" />
+        </div>
+
+        <div class="formRow">
+          <label>Class</label>
+          <div class="classPick" id="classPick">
+            <button type="button" class="classBtn" data-class="Warrior">Warrior</button>
+            <button type="button" class="classBtn" data-class="Ranger">Ranger</button>
+            <button type="button" class="classBtn" data-class="Mage">Wizard/Mage</button>
+          </div>
+        </div>
+
+        <div class="formRow">
+          <label>Color</label>
+          <div class="pill" id="charColorPill">—</div>
+        </div>
+
+        <div class="btnrow" style="margin-top:12px;">
+          <button id="charStart">Enter World</button>
+        </div>
+
+        <div class="hint">
+          Ranger bow + Mage Air Bolt max range: 5 tiles. Mage casts Air Bolt for free. <br>
+          Bank chest is inside the starting castle.
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Character confirmation -->
+    <div id="deleteCharOverlay" class="overlay" style="display:none;">
+      <div class="modal">
+        <h2>Delete Character</h2>
+        <p class="sub">This will permanently delete your current character. Continue?</p>
+        <div class="btnrow" style="margin-top:12px;">
+          <button id="deleteCharCancel">Cancel</button>
+          <button id="deleteCharConfirm">Delete</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+<audio id="bgm" src="assets/bgm.mp3" loop preload="auto"></audio>
+
+<script type="module" src="game.js?v=20260213a"></script>
+
+
+</body>
+</html>
