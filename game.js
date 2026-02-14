@@ -1,8 +1,23 @@
+import { clamp, dist, now } from "./src/utils.js";
+import {
+  TILE, W, H, WORLD_W, WORLD_H, ZOOM_DEFAULT, ZOOM_MIN, ZOOM_MAX, RIVER_Y
+} from "./src/config.js";
+import {
+  levelFromXP, xpToNext, calcCombatLevelFromLevels, getPlayerCombatLevel
+} from "./src/skills.js";
+import { createNavigation } from "./src/navigation.js";
+import {
+  camera, view, map, startCastle, southKeep, Skills, lastSkillLevel, lastSkillXPMsgAt,
+  BASE_HP, HP_PER_LEVEL, wallet, MAX_INV, MAX_BANK, inv, bank, quiver, groundLoot,
+  manualDropLocks, lootUi, equipment, meleeState, resources, mobs, interactables,
+  worldState, availability, windowsOpen, useState, characterState, chatUI,
+  gatherParticles, combatFX, mouse, player
+} from "./src/state.js";
+
+
+
 (() => {
-  // ---------- Utilities ----------
-  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
-  const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
-  const now = () => performance.now();
+
 
   // ---------- Chat ----------
   const CHAT_LIMIT = 20;
@@ -25,11 +40,6 @@
   }
 
   // ---------- Game constants ----------
-  const TILE = 32;
-  const W = 60;
-  const H = 40;
-  const WORLD_W = W * TILE;
-  const WORLD_H = H * TILE;
 
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
@@ -37,193 +47,30 @@
   const VIEW_H = canvas.height;
 
   // Zoom
-  let zoom = 0.85;
-  const ZOOM_MIN = 0.65;
-  const ZOOM_MAX = 1.20;
-
   function setZoom(z) {
-    zoom = clamp(z, ZOOM_MIN, ZOOM_MAX);
+    view.zoom = clamp(z, ZOOM_MIN, ZOOM_MAX);
   }
 
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     const delta = Math.sign(e.deltaY);
     const step = 0.06;
-    setZoom(zoom + (delta > 0 ? -step : step));
+    setZoom(view.zoom + (delta > 0 ? -step : step));
   }, { passive: false });
 
   // Camera (top-left) in world pixels
-  const camera = { x: 0, y: 0 };
-  function viewWorldW(){ return VIEW_W / zoom; }
-  function viewWorldH(){ return VIEW_H / zoom; }
+  function viewWorldW(){ return VIEW_W / view.zoom; }
+  function viewWorldH(){ return VIEW_H / view.zoom; }
 
-  // ---------- Map ----------
-  // 0 grass (walkable), 1 water (blocked), 2 cliff (blocked), 3 stone floor (walkable), 4 wall (blocked), 5 path/bridge (walkable)
-  const map = Array.from({length: H}, () => Array.from({length: W}, () => 0));
-  const RIVER_Y = 22;
+  // ---------- Map / pathfinding ----------
+  const { inBounds, isWalkable, isIndoors, astar } = createNavigation(map, W, H);
 
-  for (let y=0; y<H; y++) for (let x=0; x<W; x++) map[y][x]=0;
-
-  for (let x=2; x<W-2; x++) { map[RIVER_Y][x]=1; map[RIVER_Y+1][x]=1; }
-  for (const bx of [7, 8, 42, 43]) { map[RIVER_Y][bx]=5; map[RIVER_Y+1][bx]=5; }
-
-  function stampCastle(x0, y0, w, h) {
-    for (let y=y0; y<y0+h; y++) {
-      for (let x=x0; x<x0+w; x++) {
-        const edge = (x===x0 || x===x0+w-1 || y===y0 || y===y0+h-1);
-        map[y][x] = edge ? 4 : 3;
-      }
-    }
-    const gateX = x0 + Math.floor(w/2);
-    const gateY = y0 + h - 1;
-    map[gateY][gateX] = 5;
-    map[gateY+1][gateX] = 5;
-    map[gateY+2][gateX] = 5;
-    return { gateX, gateY, x0, y0, w, h };
-  }
-
-  const startCastle = stampCastle(2, 2, 12, 8);
-  for (let y=startCastle.gateY; y<=RIVER_Y+1; y++) { map[y][startCastle.gateX]=5; map[y][startCastle.gateX-1]=5; }
-  for (let x=Math.min(startCastle.gateX-1, 7); x<=Math.max(startCastle.gateX, 8); x++) map[RIVER_Y-1][x]=5;
-  for (let y=RIVER_Y+2; y<H-2; y++) { map[y][8]=5; }
-
-  for (let x=8; x<=42; x++) map[RIVER_Y-3][x]=5;
-  for (let y=RIVER_Y-3; y<=RIVER_Y+1; y++) map[y][42]=5;
-
-  const southKeep = stampCastle(44, 30, 12, 8);
-  for (let y=RIVER_Y+2; y<=southKeep.gateY+2; y++) map[y][42]=5;
-  for (let x=42; x<=southKeep.gateX; x++) map[southKeep.gateY+2][x]=5;
-
-  function inBounds(x,y){ return x>=0 && y>=0 && x<W && y<H; }
-  function isWalkable(x,y){
-    if (!inBounds(x,y)) return false;
-    return map[y][x]===0 || map[y][x]===3 || map[y][x]===5;
-  }
-  // "Indoors" tiles (currently: stone floor inside castles/buildings)
-  function isIndoors(x,y){
-    if (!inBounds(x,y)) return false;
-    return map[y][x] === 3; // stone floor
-  }
-
-
-  // ---------- A* pathfinding ----------
-  function astar(sx, sy, gx, gy) {
-    sx|=0; sy|=0; gx|=0; gy|=0;
-    if (!isWalkable(gx,gy) || !isWalkable(sx,sy)) return null;
-    if (sx===gx && sy===gy) return [];
-    const key = (x,y)=> (y*W+x);
-    const open = new Map();
-    const came = new Map();
-    const g = new Map();
-    const f = new Map();
-    const h = (x,y)=> Math.abs(x-gx)+Math.abs(y-gy);
-
-    const sk = key(sx,sy);
-    g.set(sk,0); f.set(sk,h(sx,sy)); open.set(sk,{x:sx,y:sy});
-    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-
-    while (open.size){
-      let bestK=null, bestN=null, bestF=Infinity;
-      for (const [k,n] of open.entries()){
-        const fs = f.get(k) ?? Infinity;
-        if (fs<bestF){ bestF=fs; bestK=k; bestN=n; }
-      }
-      if (!bestN) break;
-      if (bestN.x===gx && bestN.y===gy){
-        const path=[];
-        let ck=bestK;
-        while (came.has(ck)){
-          const prev=came.get(ck);
-          const cy=Math.floor(ck/W), cx=ck-cy*W;
-          path.push({x:cx,y:cy});
-          ck=prev;
-        }
-        path.reverse();
-        return path;
-      }
-      open.delete(bestK);
-
-      for (const [dx,dy] of dirs){
-        const nx=bestN.x+dx, ny=bestN.y+dy;
-        if (!isWalkable(nx,ny)) continue;
-        const nk=key(nx,ny);
-        const tentative=(g.get(bestK)??Infinity)+1;
-        if (tentative < (g.get(nk)??Infinity)){
-          came.set(nk,bestK);
-          g.set(nk,tentative);
-          f.set(nk,tentative+h(nx,ny));
-          if (!open.has(nk)) open.set(nk,{x:nx,y:ny});
-        }
-      }
-    }
-    return null;
-  }
-
-  // ---------- Skills ----------
-  function levelFromXP(xp){ let lvl=1; while (xp>=xpForLevel(lvl+1)) lvl++; return lvl; }
-  function xpForLevel(lvl){ if (lvl<=1) return 0; return 25*(lvl-1)*(lvl-1); }
-  function xpToNext(xp){
-    const lvl=levelFromXP(xp);
-    const cur=xpForLevel(lvl), next=xpForLevel(lvl+1);
-    return { lvl, cur, next, pct: (xp-cur)/(next-cur) };
-  }
-
-  const Skills = {
-    accuracy:{ name:"Accuracy", xp:0 },
-    power:{ name:"Power", xp:0 },
-    defense:{ name:"Defense", xp:0 },
-    ranged:{ name:"Ranged", xp:0 },
-    sorcery:{ name:"Sorcery", xp:0 },
-    health:{ name:"Health", xp:0 },
-    fletching:{ name:"Fletching", xp:0 },
-    woodcutting:{ name:"Woodcut", xp:0 },
-    mining:{ name:"Mining", xp:0 },
-fishing:{ name:"Fishing", xp:0 },
-firemaking:{ name:"Firemaking", xp:0 },
-cooking:{ name:"Cooking", xp:0 },
-
-
-
-  };
   const SKILL_ICONS = {
     accuracy:"🎯", power:"💪", defense:"🛡️", ranged:"🏹", sorcery:"✨", fletching:"🪶", health:"❤️",
     woodcutting:"🪵", mining:"⛏️", fishing:"🎣", firemaking:"🔥", cooking:"🍳"
 
 
   };
-// ---------- Combat level (RuneScape-style, OSRS-like; no Prayer in this game) ----------
-function getSkillLevel(key){
-  const s = Skills[key];
-  return levelFromXP(s ? s.xp : 0);
-}
-
-function calcCombatLevelFromLevels(lv){
-  const def = lv.defense|0;
-  const hp  = lv.health|0;
-  const atk = lv.accuracy|0;
-  const str = lv.power|0;
-  const rng = lv.ranged|0;
-  const mag = lv.sorcery|0;
-
-  const base  = (def + hp) / 4;
-  const melee = (atk + str) / 2;
-  const range = (rng * 3) / 2;
-  const mage  = (mag * 3) / 2;
-
-  return Math.floor(base + Math.max(melee, range, mage));
-}
-
-function getPlayerCombatLevel(){
-  return calcCombatLevelFromLevels({
-    accuracy: getSkillLevel("accuracy"),
-    power:    getSkillLevel("power"),
-    defense:  getSkillLevel("defense"),
-    ranged:   getSkillLevel("ranged"),
-    sorcery:  getSkillLevel("sorcery"),
-    health:   getSkillLevel("health"),
-  });
-}
-
 // used to tint "Attack X" in the right-click menu
 function ctxLevelClass(playerLvl, enemyLvl){
   const d = (enemyLvl|0) - (playerLvl|0);
@@ -241,25 +88,12 @@ function levelStrokeForCls(cls){
   if (cls === "lvlBad")  return "rgba(251,113,133,.75)";
   return "rgba(251,191,36,.75)";
 }
-
-
-
-  const lastSkillLevel = Object.create(null);
-  const lastSkillXPMsgAt = Object.create(null);
-
-
-  // HP progression constants
-  const BASE_HP = 30;
-  const HP_PER_LEVEL = 2;
-
   // ---------- Items ----------
   const GOLD_ITEM_ID = "gold"; // <-- if your gold item's id differs, change this string
 
 
 
   // ---------- Wallet (gold does not take inventory slots) ----------
-  const wallet = { gold: 0 };
-
   const getGold = () => (wallet.gold | 0);
 
   function addGold(qty){
@@ -279,9 +113,6 @@ function levelStrokeForCls(cls){
     renderGold();
     return true;
   }
-
-  const MAX_INV = 28;
-  const MAX_BANK = 56;
 
   const Items = {
     axe:  { id:"axe",  name:"Crude Axe",  stack:false, icon:"🪓" },
@@ -400,13 +231,7 @@ const COOK_RECIPES = {
   goldfish: { out: "goldfish_cracker", xp: 12, verb: "cook a gold fish cracker" },
 };
 
-  const inv = Array.from({length: MAX_INV}, () => null);
-  const bank = Array.from({length: MAX_BANK}, () => null);
-
   // ---------- Quiver (arrows do not take inventory slots) ----------
-  const quiver = {
-    wooden_arrow: 0
-  };
   function addToQuiver(id, qty){
     const item = Items[id];
     if (!item || !item.ammo || qty<=0) return 0;
@@ -442,14 +267,12 @@ const COOK_RECIPES = {
 
   // ---------- Ground loot piles ----------
   // key "x,y" -> Map(itemId -> qty)
-  const groundLoot = new Map();
 const GROUND_LOOT_DESPAWN_MS = 60_000; // 60 seconds
 
 
   function lootKey(x,y){ return `${x},${y}`; }
   // Manual drops: prevent the auto-loot system from instantly picking the item back up.
   // Keyed by tile ("x,y"). The lock clears once you walk out of auto-loot range of that tile.
-  const manualDropLocks = new Map();
   function lockManualDropAt(x,y){
     manualDropLocks.set(lootKey(x,y), true);
   }
@@ -500,12 +323,6 @@ function pruneExpiredGroundLoot(){
     }
   }
 }
-
-
-  // auto-loot throttling for "Inventory full: <ItemName>" messages
-  let lastInvFullMsgAt = 0;
-  let lastInvFullMsgItem = null;
-
     // ---------- Inventory behavior ----------
   // Inventory: one-per-slot (no stacking). Ammo routes to quiver.
   function addToInventory(id, qty=1){
@@ -639,11 +456,6 @@ function consumeFoodFromInv(invIndex){
   }
 
   // ---------- Equipment ----------
-  const equipment = {
-    weapon: null,
-    offhand: null
-  };
-
   function canEquip(id){
     const it = Items[id];
     if (!it) return null;
@@ -698,14 +510,13 @@ function consumeFoodFromInv(invIndex){
 
   // ---------- Melee Training selector ----------
   const MELEE_TRAIN_KEY = "classic_melee_training_v1";
-  let meleeTraining = "accuracy";
 
   function loadMeleeTraining(){
     const v = localStorage.getItem(MELEE_TRAIN_KEY);
-    if (v === "accuracy" || v === "power" || v === "defense") meleeTraining = v;
-    else meleeTraining = "accuracy";
+    if (v === "accuracy" || v === "power" || v === "defense") meleeState.selected = v;
+    else meleeState.selected = "accuracy";
   }
-  function saveMeleeTraining(){ localStorage.setItem(MELEE_TRAIN_KEY, meleeTraining); }
+  function saveMeleeTraining(){ localStorage.setItem(MELEE_TRAIN_KEY, meleeState.selected); }
 
   // ---------- HP / HUD ----------
   const hudNameEl = document.getElementById("hudName");
@@ -738,7 +549,7 @@ const hudCombatTextEl = document.getElementById("hudCombatText");
     hudHPBarEl.style.width = `${(player.maxHp>0 ? (player.hp/player.maxHp) : 0) * 100}%`;
     if (hudGoldTextEl) hudGoldTextEl.textContent = `Gold: ${getGold()}`;
     hudQuiverTextEl.textContent = `Quiver: ${getQuiverCount()}`;
-if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLevel()}`;
+if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLevel(Skills)}`;
 
   }
   function updateCoordsHUD(){
@@ -749,13 +560,13 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
       if (coordPlayerEl.textContent !== p) coordPlayerEl.textContent = p;
     }
 
-    if (!mouseSeen){
+    if (!mouse.seen){
       if (coordMouseEl && coordMouseEl.textContent !== "—") coordMouseEl.textContent = "—";
       return;
     }
 
-    const worldX = (mouseX/VIEW_W)*viewWorldW() + camera.x;
-    const worldY = (mouseY/VIEW_H)*viewWorldH() + camera.y;
+    const worldX = (mouse.x/VIEW_W)*viewWorldW() + camera.x;
+    const worldY = (mouse.y/VIEW_H)*viewWorldH() + camera.y;
     const tx = Math.floor(worldX / TILE);
     const ty = Math.floor(worldY / TILE);
 
@@ -806,9 +617,6 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
   }
 
   // ---------- Entities ----------
-  const resources = [];
-  const mobs = [];
-  const interactables = [];
 const MOB_DEFS = {
 rat: {
   name: "Rat",
@@ -832,7 +640,6 @@ rat: {
 
 // ---------- Persistent world seed ----------
 const WORLD_SEED_KEY = "classic_world_seed_v1";
-let worldSeed = 1337; // pick any integer you want as the "default world"
 
 function initWorldSeed(){
   try{
@@ -840,16 +647,16 @@ function initWorldSeed(){
     const n = raw == null ? NaN : parseInt(raw, 10);
 
     if (Number.isFinite(n) && n > 0){
-      worldSeed = (n >>> 0);
+      worldState.seed = (n >>> 0);
       return;
     }
 
     // First run (or invalid): lock in the default seed above
-    worldSeed = (worldSeed >>> 0);
-    localStorage.setItem(WORLD_SEED_KEY, String(worldSeed));
+    worldState.seed = (worldState.seed >>> 0);
+    localStorage.setItem(WORLD_SEED_KEY, String(worldState.seed));
   }catch{
     // If localStorage is blocked, we still keep a stable default seed
-    worldSeed = (worldSeed >>> 0);
+    worldState.seed = (worldState.seed >>> 0);
   }
 }
 // ---------- Seeded RNG + placement helpers ----------
@@ -944,8 +751,8 @@ const DEFAULT_MOB_LEVELS = {
  function seedResources(){
   resources.length = 0;
 
-  // Deterministic per worldSeed (persistent world)
-  const rng = makeRng(worldSeed ^ 0xA53C9E27);
+  // Deterministic per world seed (persistent world)
+  const rng = makeRng(worldState.seed ^ 0xA53C9E27);
   const used = new Set();
 
   // Tiles to keep clear (because interactables are placed after resources)
@@ -1135,7 +942,7 @@ const DEFAULT_MOB_LEVELS = {
   function seedMobs(){
   mobs.length = 0;
 
-  const rng = makeRng(worldSeed ^ 0x51C3A2B9);
+  const rng = makeRng(worldState.seed ^ 0x51C3A2B9);
   const used = new Set();
 
   // Build a reachable set so rats never spawn in sealed-off areas
@@ -1332,33 +1139,6 @@ const BGM_KEY = "classic_bgm_v1";
     Mage:    { color: "#22d3ee" },
   };
 
-  // ---------- Player ----------
-  const player = {
-    name: "Adventurer",
-    class: "Warrior",
-    color: CLASS_DEFS.Warrior.color,
-
-    hp: BASE_HP,
-    maxHp: BASE_HP,
-
-    x: startCastle.x0 + 6,
-    y: startCastle.y0 + 4,
-    px: 0, py: 0,
-
-    speed: 140,
-    path: [],
-    target: null, // {kind:"res"|"mob"|"bank", index}
-
-    action: { type:"idle", endsAt:0, total:0, label:"Idle", onComplete:null },
-    attackCooldownUntil: 0,
-invulnUntil: 0,
-
-    facing: { x: 0, y: 1 },
-
-    _sparked: false,
-    _lastRangeMsgAt: 0
-  };
-
   function tileCenter(x,y){ return {cx:x*TILE+TILE/2, cy:y*TILE+TILE/2}; }
   function syncPlayerPix(){ const {cx,cy}=tileCenter(player.x,player.y); player.px=cx; player.py=cy; }
   syncPlayerPix();
@@ -1457,12 +1237,6 @@ const winVendor  = document.getElementById("winVendor");
 const iconVendor = document.getElementById("iconVendor");
 
   const iconSet  = document.getElementById("iconSet");
-
-
-  let bankAvailable = false;
-let vendorAvailable = false;
-let vendorInRangeIndex = -1;
-let vendorTab = "buy";
 // ---------- Vendor UI ----------
 const vendorGoldPill = document.getElementById("vendorGoldPill");
 const vendorListEl = document.getElementById("vendorList");
@@ -1485,12 +1259,12 @@ function renderVendorUI(){
   if (vendorGoldPill) vendorGoldPill.textContent = `Gold: ${getGold()}`;
 
   // tab button styles
-  if (vendorTabBuyBtn) vendorTabBuyBtn.classList.toggle("active", vendorTab === "buy");
-  if (vendorTabSellBtn) vendorTabSellBtn.classList.toggle("active", vendorTab === "sell");
+  if (vendorTabBuyBtn) vendorTabBuyBtn.classList.toggle("active", availability.vendorTab === "buy");
+  if (vendorTabSellBtn) vendorTabSellBtn.classList.toggle("active", availability.vendorTab === "sell");
 
   vendorListEl.innerHTML = "";
 
-  if (vendorTab === "buy"){
+  if (availability.vendorTab === "buy"){
     for (const row of DEFAULT_VENDOR_STOCK){
       const it = Items[row.id];
       if (!it) continue;
@@ -1618,21 +1392,10 @@ function renderVendorUI(){
   }
 }
 
-if (vendorTabBuyBtn) vendorTabBuyBtn.addEventListener("click", ()=>{ vendorTab="buy"; renderVendorUI(); });
-if (vendorTabSellBtn) vendorTabSellBtn.addEventListener("click", ()=>{ vendorTab="sell"; renderVendorUI(); });
-
-
+if (vendorTabBuyBtn) vendorTabBuyBtn.addEventListener("click", ()=>{ availability.vendorTab = "buy"; renderVendorUI(); });
+if (vendorTabSellBtn) vendorTabSellBtn.addEventListener("click", ()=>{ availability.vendorTab = "sell"; renderVendorUI(); });
 
   // Open state: inventory + equipment can be open simultaneously.
-  const windowsOpen = {
-    inventory: false,
-    equipment: false,
-    skills: false,
-    bank: false,
-    settings: false,
-    vendor: false,
-
-  };
 
   function applyWindowVis(){
     winInventory.classList.toggle("hidden", !windowsOpen.inventory);
@@ -1685,8 +1448,8 @@ if (winVendor) winVendor.classList.toggle("hidden", !windowsOpen.vendor);
   }
 
   function toggleWindow(name){
-    if (name === "bank" && !bankAvailable) return;
-  if (name === "vendor" && !vendorAvailable) {
+    if (name === "bank" && !availability.bank) return;
+  if (name === "vendor" && !availability.vendor) {
     chatLine(`<span class="muted">You need to be next to a vendor to trade.</span>`);
     return;
   }
@@ -1710,7 +1473,7 @@ iconVendor.addEventListener("click", () => toggleWindow("vendor"));
 
 
   function updateBankIcon(){
-    if (bankAvailable){
+    if (availability.bank){
       iconBank.classList.remove("disabled");
       iconBank.style.display = "";
     } else {
@@ -1724,7 +1487,7 @@ iconVendor.addEventListener("click", () => toggleWindow("vendor"));
     }
   }
 function updateVendorIcon(){
-  if (vendorAvailable){
+  if (availability.vendor){
     iconVendor.classList.remove("disabled");
     iconVendor.style.display = "";
   } else {
@@ -1910,7 +1673,7 @@ const skillsCombatPillEl = document.getElementById("skillsCombatPill");
 
     function renderSkills(){
     skillsGrid.innerHTML="";
-if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCombatLevel()}`;
+if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCombatLevel(Skills)}`;
 
     const order = ["health","accuracy","power","defense","ranged","sorcery","fletching","woodcutting","mining","fishing","firemaking","cooking"];
 
@@ -1986,7 +1749,7 @@ if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCom
   const meleeTrainingSeg = document.getElementById("meleeTrainingSeg");
   function renderMeleeTrainingUI(){
     for (const btn of meleeTrainingSeg.querySelectorAll(".segBtn")){
-      btn.classList.toggle("active", btn.dataset.melee === meleeTraining);
+      btn.classList.toggle("active", btn.dataset.melee === meleeState.selected);
     }
   }
   meleeTrainingSeg.addEventListener("click", (e) => {
@@ -1994,7 +1757,7 @@ if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCom
     if (!btn) return;
     const v = btn.dataset.melee;
     if (v === "accuracy" || v === "power" || v === "defense"){
-      meleeTraining = v;
+      meleeState.selected = v;
       saveMeleeTraining();
       renderMeleeTrainingUI();
       chatLine(`<span class="muted">Melee Training set to <b>${Skills[v].name}</b>.</span>`);
@@ -2020,8 +1783,6 @@ if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCom
   const hudChatMin = document.getElementById("hudChatMin");
   const hudChatResize = document.getElementById("hudChatResize");
   const hudChatTab = document.getElementById("hudChatTab");
-
-  let chatUI = { left: 12, top: null, width: 420, height: 320, collapsed: false };
 
   function loadChatUI(){
     const raw = localStorage.getItem(CHAT_UI_KEY);
@@ -2164,7 +1925,7 @@ if (opt.className) b.classList.add(opt.className);
     const item = Items[id];
     if (!item) return;
 
-    if (!bankAvailable){
+    if (!availability.bank){
       chatLine(`<span class="warn">You must be at a bank chest to bank items.</span>`);
       return;
     }
@@ -2183,7 +1944,7 @@ if (opt.className) b.classList.add(opt.className);
   }
 
   function withdrawFromBank(bankIndex, qty=null){
-    if (!bankAvailable){
+    if (!availability.bank){
       chatLine(`<span class="warn">You must be at a bank chest to withdraw.</span>`);
       return;
     }
@@ -2223,7 +1984,7 @@ if (opt.className) b.classList.add(opt.className);
   }
 
   document.getElementById("bankDepositAll").addEventListener("click", () => {
-    if (!bankAvailable) return chatLine(`<span class="warn">You must be at a bank chest.</span>`);
+    if (!availability.bank) return chatLine(`<span class="warn">You must be at a bank chest.</span>`);
     for (let i=0;i<MAX_INV;i++){
       const s=inv[i]; if (!s) continue;
       const ok = addToBank(bank, s.id, 1);
@@ -2234,7 +1995,7 @@ if (opt.className) b.classList.add(opt.className);
   });
 
   document.getElementById("bankWithdrawAll").addEventListener("click", () => {
-    if (!bankAvailable) return chatLine(`<span class="warn">You must be at a bank chest.</span>`);
+    if (!availability.bank) return chatLine(`<span class="warn">You must be at a bank chest.</span>`);
     for (let i=0;i<MAX_BANK;i++){
       const s=bank[i]; if (!s) continue;
       const item=Items[s.id];
@@ -2261,9 +2022,8 @@ if (opt.className) b.classList.add(opt.className);
   });
 
   // ---------- Inventory use state + fletching ----------
-  let activeUseItemId = null;
   function setUseState(id){
-    activeUseItemId = id;
+    useState.activeItemId = id;
     if (!id){ invUseStateEl.textContent = "Use: none"; return; }
     const item = Items[id];
     invUseStateEl.textContent = `Use: ${item ? item.name : id}`;
@@ -2449,8 +2209,8 @@ if (toolId === "flint_steel" && targetId === "log") {
 
 
 
-    if (activeUseItemId){
-      const toolId = activeUseItemId;
+    if (useState.activeItemId){
+      const toolId = useState.activeItemId;
       const targetId = inv[idx].id;
 
       if (toolId === targetId){
@@ -2548,15 +2308,13 @@ return;
   const charStart=document.getElementById("charStart");
   const classPick=document.getElementById("classPick");
 
-  let selectedClass = "Warrior";
-
   function setSelectedClass(cls){
     if (!CLASS_DEFS[cls]) cls = "Warrior";
-    selectedClass = cls;
+    characterState.selectedClass = cls;
     for (const btn of classPick.querySelectorAll("button[data-class]")){
-      btn.classList.toggle("active", btn.dataset.class === selectedClass);
+      btn.classList.toggle("active", btn.dataset.class === characterState.selectedClass);
     }
-    charColorPill.textContent = CLASS_DEFS[selectedClass].color;
+    charColorPill.textContent = CLASS_DEFS[characterState.selectedClass].color;
   }
 
   function loadCharacterPrefs(){
@@ -2582,7 +2340,7 @@ return;
 
     if (!force && saved?.class && saved?.name){
       player.color = CLASS_DEFS[player.class]?.color ?? player.color;
-      selectedClass = player.class;
+      characterState.selectedClass = player.class;
       return false;
     }
 
@@ -2741,7 +2499,7 @@ player.invulnUntil = now() + 1200;
 
     player._lastRangeMsgAt = 0;
 
-    setZoom(0.85);
+    setZoom(ZOOM_DEFAULT);
 
     renderSkills();
     renderInv();
@@ -2754,8 +2512,8 @@ player.invulnUntil = now() + 1200;
 
   charStart.onclick = () => {
     player.name = (charName.value || "Adventurer").trim().slice(0,14) || "Adventurer";
-    player.class = selectedClass;
-    player.color = CLASS_DEFS[selectedClass].color;
+    player.class = characterState.selectedClass;
+    player.color = CLASS_DEFS[characterState.selectedClass].color;
 
     saveCharacterPrefs();
     charOverlay.style.display="none";
@@ -2840,9 +2598,6 @@ if (ent.kind==="anvil")   chatLine(`<span class="muted">A heavy anvil. You'll us
 
 
   // ---------- Combat + actions ----------
-  const gatherParticles = [];
-  const combatFX = []; // {kind:"slash"|"arrow"|"bolt", x0,y0,x1,y1, born, life}
-
   function spawnGatherParticles(kind, tx, ty){
     const center = tileCenter(tx,ty);
     for (let i=0;i<6;i++){
@@ -3235,7 +2990,7 @@ function ensureWalkIntoRangeAndAct(){
     if (player.action.type !== "idle") return;
 
     chatLine(`<span class="muted">You open the bank chest.</span>`);
-    bankAvailable = true;
+    availability.bank = true;
     updateBankIcon();
 
     openWindow("bank");
@@ -3340,8 +3095,8 @@ if (t.kind === "anvil"){
     if (player.action.type !== "idle") return;
 
    // Prefer the currently selected "Use:" item if it's cookable.
-const useCookable = (activeUseItemId && COOK_RECIPES[activeUseItemId] && hasItem(activeUseItemId))
-  ? activeUseItemId
+const useCookable = (useState.activeItemId && COOK_RECIPES[useState.activeItemId] && hasItem(useState.activeItemId))
+  ? useState.activeItemId
   : null;
 
 // Fallback: cook *something* if you have it
@@ -3366,7 +3121,7 @@ startTimedAction("cook", 1400, "Cooking...", () => {
   }
 
   // if you used the "Use:" state to pick this item, clear it after the cook
-  if (activeUseItemId === cookId) setUseState(null);
+  if (useState.activeItemId === cookId) setUseState(null);
 
   const got = addToInventory(rec.out, 1);
   if (got === 1){
@@ -3574,7 +3329,7 @@ m.hp = Math.max(0, m.hp - dmg);
 addXP("health", dmg);
 
 if (style === "melee"){
-  addXP(meleeTraining, dmg);
+  addXP(meleeState.selected, dmg);
 } else if (style === "ranged"){
   addXP("ranged", dmg);
 } else {
@@ -3716,10 +3471,10 @@ if (item.ammo){
         if (qty > 0){
           // still leftover => inventory full
           const tNow = now();
-          if ((tNow - lastInvFullMsgAt) > 700 || lastInvFullMsgItem !== id){
+          if ((tNow - lootUi.lastInvFullMsgAt) > 700 || lootUi.lastInvFullMsgItem !== id){
             chatLine(`<span class="warn">Inventory full: ${item.name}</span>`);
-            lastInvFullMsgAt = tNow;
-            lastInvFullMsgItem = id;
+            lootUi.lastInvFullMsgAt = tNow;
+            lootUi.lastInvFullMsgItem = id;
           }
           // stop trying further items this tick if full
           break;
@@ -4328,7 +4083,7 @@ function drawPlayerWeapon(cx, cy, fx, fy){
 
     let stroke="rgba(94,234,212,.6)";
     if (ent?.kind==="mob"){
-      const cls = ctxLevelClass(getPlayerCombatLevel(), ent.level ?? 1);
+      const cls = ctxLevelClass(getPlayerCombatLevel(Skills), ent.level ?? 1);
       stroke = levelStrokeForCls(cls);
     }
 
@@ -4394,7 +4149,7 @@ function drawPlayerWeapon(cx, cy, fx, fy){
       } else {
         // Tint the FIRST line (mob name) based on combat level
         if (i===0 && ent?.kind==="mob"){
-          const cls = ctxLevelClass(getPlayerCombatLevel(), ent.level ?? 1);
+          const cls = ctxLevelClass(getPlayerCombatLevel(Skills), ent.level ?? 1);
           ctx.fillStyle = levelTextForCls(cls);
         } else {
           ctx.fillStyle="rgba(230,238,247,.95)";
@@ -4475,16 +4230,14 @@ function drawPlayerWeapon(cx, cy, fx, fy){
   });
 
   // ---------- Input / world-space mouse ----------
-  let mouseX=0, mouseY=0;
-let mouseSeen=false;
   canvas.addEventListener("mousemove",(e)=>{
-    mouseSeen = true;
+    mouse.seen = true;
 
     const rect=canvas.getBoundingClientRect();
     const sx=(e.clientX-rect.left)/rect.width;
     const sy=(e.clientY-rect.top)/rect.height;
-    mouseX=sx*VIEW_W;
-    mouseY=sy*VIEW_H;
+    mouse.x = sx*VIEW_W;
+    mouse.y = sy*VIEW_H;
   });
 
   canvas.addEventListener("mousedown",(e)=>{
@@ -4537,7 +4290,7 @@ let mouseSeen=false;
   const m = mobs[ent.index];
   const name = m?.name ?? "Rat";
   const lvl  = m?.combatLevel ?? 1;
-  const cls  = ctxLevelClass(getPlayerCombatLevel(), lvl);
+  const cls  = ctxLevelClass(getPlayerCombatLevel(Skills), lvl);
 
   opts.push({label:`Attack ${name} (Lvl ${lvl})`, className: cls, onClick:()=>beginInteraction(ent)});
   opts.push({label:`Examine ${name}`, onClick:()=>examineEntity(ent)});
@@ -4607,7 +4360,7 @@ let mouseSeen=false;
     skills:Object.fromEntries(Object.entries(Skills).map(([k,v])=>[k,v.xp])),
     inv,
     bank,
-    zoom,
+    zoom: view.zoom,
     equipment: { ...equipment },
     quiver: { ...quiver },
     wallet: { ...wallet },
@@ -4993,29 +4746,29 @@ pruneExpiredGroundLoot();
     // bank availability
     const bankIt = interactables.find(it=>it.type==="bank");
     if (bankIt){
-      bankAvailable = inRangeOfTile(bankIt.x, bankIt.y, 1.1);
+      availability.bank = inRangeOfTile(bankIt.x, bankIt.y, 1.1);
     } else {
-      bankAvailable = false;
+      availability.bank = false;
     }
     updateBankIcon();
 // vendor availability (vendor only)
 
-vendorAvailable = false;
-vendorInRangeIndex = -1;
+availability.vendor = false;
+availability.vendorInRangeIndex = -1;
 
 for (let i=0; i<interactables.length; i++){
   const it = interactables[i];
   if (it.type !== "vendor") continue;
 
   if (inRangeOfTile(it.x, it.y, 1.1)){
-    vendorAvailable = true;
-    vendorInRangeIndex = i;
+    availability.vendor = true;
+    availability.vendorInRangeIndex = i;
     break;
   }
 }
 
 updateVendorIcon();
-if (windowsOpen.vendor && !vendorAvailable){
+if (windowsOpen.vendor && !availability.vendor){
   closeWindow("vendor");
 }
 
@@ -5088,13 +4841,13 @@ if (player.hp <= 0) handlePlayerDeath();
   }
 
   function render(){
-    const mouseWorldX = (mouseX/VIEW_W)*viewWorldW() + camera.x;
-    const mouseWorldY = (mouseY/VIEW_H)*viewWorldH() + camera.y;
+    const mouseWorldX = (mouse.x/VIEW_W)*viewWorldW() + camera.x;
+    const mouseWorldY = (mouse.y/VIEW_H)*viewWorldH() + camera.y;
 
     ctx.setTransform(1,0,0,1,0,0);
     ctx.clearRect(0,0,VIEW_W,VIEW_H);
 
-    ctx.setTransform(zoom,0,0,zoom, -camera.x*zoom, -camera.y*zoom);
+    ctx.setTransform(view.zoom,0,0,view.zoom, -camera.x*view.zoom, -camera.y*view.zoom);
 
     drawMap();
     drawResources();
@@ -5127,7 +4880,7 @@ if (player.hp <= 0) handlePlayerDeath();
       }
     }
 
-    drawHover(mouseWorldX, mouseWorldY, mouseX, mouseY);
+    drawHover(mouseWorldX, mouseWorldY, mouse.x, mouse.y);
 
     ctx.setTransform(1,0,0,1,0,0);
     drawMinimap();
@@ -5163,7 +4916,7 @@ initWorldSeed();
     startNewGame();
 
     // If bank is open in UI state, ensure it's closed until you are in range
-    if (windowsOpen.bank && !bankAvailable) windowsOpen.bank = false;
+    if (windowsOpen.bank && !availability.bank) windowsOpen.bank = false;
     applyWindowVis();
 
     openCharCreate(!savedChar);
