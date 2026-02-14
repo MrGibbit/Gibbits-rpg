@@ -65,3 +65,13 @@ python -m http.server 8000
 
 Then open:
 - `http://localhost:8000`
+
+## Module Layout Safety
+- JavaScript modules are canonical in `src/` and imported from `game.js` as `./src/*.js`.
+- Before publishing, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .github/scripts/validate-imports.ps1
+```
+
+- GitHub Actions also runs this validation on every push and pull request.
