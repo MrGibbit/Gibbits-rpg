@@ -1,22 +1,22 @@
-import { clamp, dist, now } from "./src/utils.js";
-import {
-  TILE, W, H, WORLD_W, WORLD_H, ZOOM_DEFAULT, ZOOM_MIN, ZOOM_MAX, RIVER_Y
-} from "./src/config.js";
-import {
-  levelFromXP, xpToNext, calcCombatLevelFromLevels, getPlayerCombatLevel
-} from "./src/skills.js";
-import { createNavigation } from "./src/navigation.js";
-import {
-  camera, view, map, startCastle, southKeep, Skills, lastSkillLevel, lastSkillXPMsgAt,
-  BASE_HP, HP_PER_LEVEL, wallet, MAX_INV, MAX_BANK, inv, bank, quiver, groundLoot,
-  manualDropLocks, lootUi, equipment, meleeState, resources, mobs, interactables,
-  worldState, availability, windowsOpen, useState, characterState, chatUI,
-  gatherParticles, combatFX, mouse, player
-} from "./src/state.js";
+const importWithFallback = (primary, fallback) =>
+  import(primary).catch(() => import(fallback));
 
-
-
-(() => {
+(async () => {
+  const { clamp, dist, now } = await importWithFallback("./src/utils.js", "./utils.js");
+  const {
+    TILE, W, H, WORLD_W, WORLD_H, ZOOM_DEFAULT, ZOOM_MIN, ZOOM_MAX, RIVER_Y
+  } = await importWithFallback("./src/config.js", "./config.js");
+  const {
+    levelFromXP, xpToNext, calcCombatLevelFromLevels, getPlayerCombatLevel
+  } = await importWithFallback("./src/skills.js", "./skills.js");
+  const { createNavigation } = await importWithFallback("./src/navigation.js", "./navigation.js");
+  const {
+    camera, view, map, startCastle, southKeep, Skills, lastSkillLevel, lastSkillXPMsgAt,
+    BASE_HP, HP_PER_LEVEL, wallet, MAX_INV, MAX_BANK, inv, bank, quiver, groundLoot,
+    manualDropLocks, lootUi, equipment, meleeState, resources, mobs, interactables,
+    worldState, availability, windowsOpen, useState, characterState, chatUI,
+    gatherParticles, combatFX, mouse, player
+  } = await importWithFallback("./src/state.js", "./state.js");
 
 
   // ---------- Chat ----------
