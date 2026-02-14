@@ -1,62 +1,67 @@
 # Classic Browser RPG Prototype
 
-This is a small, classic-style RPG I’m building in the browser with plain **HTML / CSS / JavaScript** and an **HTML5 canvas**.  
-No engines, no frameworks — just a simple prototype I can iterate on fast.
+Small old-school browser RPG built with plain HTML, CSS, JavaScript, and an HTML5 canvas.
 
-The goal is to keep it “old-school”: click around, fight stuff, gather materials, train skills, craft things, and slowly expand the world.
+No engines. No frameworks. Fast iteration.
 
----
+## Project Goal
+Build a classic-style RPG loop in the browser:
+- Move around a tile world
+- Fight enemies
+- Gather resources
+- Train skills
+- Craft useful items
+- Expand content over time
 
-## What the game has right now
+## Current Features
 
-### Core gameplay
-- **Top-down tile map** rendered on a canvas
-- **Click to move**
-- **Basic combat** (rats) with damage messages in the chat
-- **Loot drops** and item pickup
+### Core Gameplay
+- Top-down tile map rendered on canvas
+- Click-to-move navigation
+- Combat with enemy level context
+- Loot drops and pickup
 
-### UI / systems
-- **Inventory** with right-click actions (equip / use / drop)
-- **Quiver** for arrows (separate from inventory slots)
-- **Bank chest** for storage
-- **Vendor / shop UI** for buying and selling
-- **Skills window** with XP + level ups (woodcutting, mining, combat skills, etc.)
+### UI and Systems
+- Inventory with right-click actions (equip, use, drop)
+- Equipment slots (weapon/offhand)
+- Quiver system for arrows (separate from inventory slots)
+- Bank storage
+- Vendor buy/sell interface
+- Draggable/resizable UI windows
+- Skills panel with XP, levels, and combat level display
 
-### Gathering + crafting
-- **Woodcutting** (trees → logs → XP)
-- **Mining** (rocks → ore → XP)
-- **Fletching** (basic tool interactions)
+### Skills and Progression
+- Accuracy, Power, Defense, Ranged, Sorcery, Health
+- Gathering/crafting skills including Woodcutting, Mining, Fishing, Firemaking, Cooking, and Fletching
+- Melee training selector (route melee XP to Accuracy/Power/Defense)
+- XP gain messaging and level-up feedback
 
-### Firemaking (recent)
-- **Flint & Steel + Log** to light a campfire
-- Campfire has a simple **animation** and burns out after a bit
+### Gathering and Crafting
+- Woodcutting: trees -> logs -> XP
+- Mining: rocks -> ore -> XP
+- Firemaking: Flint & Steel + logs -> temporary campfire
+- Cooking via campfire loop
 
----
+### Visual Updates (v0.4.0)
+- Emoji iconography replaced with handcrafted SVG icon art
+- Skills icons are larger and easier to read
+- Sorcery uses a wizard-hat icon
+- Naming cleanup: `Woodcut` -> `Woodcutting`
 
-## What we’re working on next
+## What Is Next
+- More enemies and combat variety
+- Expanded item/drop tables
+- More resource tiers and crafting progression
+- Additional world areas and interactions
+- Vendor economy tuning and item expansion
 
-### Cooking
-- Simple success/burn timing (later)
+## Run Locally
+You can open `index.html` directly, but a local server is recommended.
 
-### Firemaking polish
-- Better visuals + better placement rules
-- Cleaner interaction flow and feedback
-
-### Vendor polish
-- More items + prices that make sense
-
-### Content + progression
-- More enemies
-- More drops
-- More resource types
-- More items/tools that unlock new loops
-
----
-
-## Running it locally
-
-You can open `index.html` directly, but a local server is better.
-
-**Python:**
+### Python
 ```bash
 python -m http.server 8000
+```
+
+Then open:
+- `http://localhost:8000`
