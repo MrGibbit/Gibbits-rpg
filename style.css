@@ -345,6 +345,18 @@
       gap:8px;
       padding-right:2px;
     }
+    #invGrid{
+      --invSlot: 76px;
+      grid-template-columns:repeat(auto-fit, minmax(var(--invSlot), var(--invSlot)));
+      justify-content:flex-start;
+      align-content:flex-start;
+    }
+    #bankGrid{
+      --bankSlot: 104px;
+      grid-template-columns:repeat(auto-fill, minmax(var(--bankSlot), var(--bankSlot)));
+      justify-content:flex-start;
+      align-content:flex-start;
+    }
     .slot{
       aspect-ratio:1/1;
       border-radius:12px;

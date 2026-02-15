@@ -8,7 +8,7 @@ import {
 import { createNavigation } from "./src/navigation.js";
 import {
   camera, view, map, startCastle, southKeep, Skills, lastSkillLevel, lastSkillXPMsgAt,
-  BASE_HP, HP_PER_LEVEL, wallet, MAX_INV, MAX_BANK, inv, bank, quiver, groundLoot,
+  BASE_HP, HP_PER_LEVEL, wallet, MAX_INV, MAX_BANK, BANK_START_SLOTS, inv, bank, bankMeta, quiver, groundLoot,
   manualDropLocks, lootUi, equipment, meleeState, resources, mobs, interactables,
   worldState, availability, windowsOpen, useState, characterState, chatUI,
   ZONE_KEYS, getActiveZone, setActiveZone, getZoneState, getZoneDimensions,
@@ -882,8 +882,13 @@ function consumeFoodFromInv(invIndex){
     // Bank always stacks same item ids, regardless of inventory stack rules.
     const si = arr.findIndex(s => s && s.id===id);
     if (si>=0){ arr[si].qty = Math.max(1, arr[si].qty|0) + qty; return true; }
-    const empty = arr.findIndex(s=>!s);
-    if (empty>=0){ arr[empty]={id, qty}; return true; }
+    const cap = getBankCapacity();
+    for (let i = 0; i < cap; i++){
+      if (!arr[i]){
+        arr[i] = { id, qty };
+        return true;
+      }
+    }
     return false;
   }
 
@@ -2621,6 +2626,8 @@ const BGM_KEY = "classic_bgm_v1";
 
   const bankGrid = document.getElementById("bankGrid");
   const bankCountEl = document.getElementById("bankCount");
+  const bankExpandBtn = document.getElementById("bankExpandBtn");
+  const bankExpandMetaEl = document.getElementById("bankExpandMeta");
   const smithingListEl = document.getElementById("smithingList");
   const smithingLevelPillEl = document.getElementById("smithingLevelPill");
 
@@ -2632,6 +2639,41 @@ const BGM_KEY = "classic_bgm_v1";
     ]
   };
   const XP_LAMP_GAIN = 100;
+  const BANK_EXPAND_STEP = 7;
+  const BANK_EXPAND_COSTS = [250, 600, 1200, 2200, 3600, 5400];
+
+  function clampBankCapacity(capacity){
+    return clamp(capacity | 0, BANK_START_SLOTS, MAX_BANK);
+  }
+
+  function getBankCapacity(){
+    return clampBankCapacity(bankMeta.capacity);
+  }
+
+  function setBankCapacity(capacity, opts = {}){
+    const next = clampBankCapacity(capacity);
+    bankMeta.capacity = next;
+    if (!opts.silent) renderBank();
+    return next;
+  }
+
+  function getBankNextCapacity(capacity = getBankCapacity()){
+    const current = clampBankCapacity(capacity);
+    return Math.min(MAX_BANK, current + BANK_EXPAND_STEP);
+  }
+
+  function getBankExpandCost(capacity = getBankCapacity()){
+    if (capacity >= MAX_BANK) return 0;
+    const tier = Math.floor((clampBankCapacity(capacity) - BANK_START_SLOTS) / BANK_EXPAND_STEP);
+    return BANK_EXPAND_COSTS[tier] ?? BANK_EXPAND_COSTS[BANK_EXPAND_COSTS.length - 1] ?? 0;
+  }
+
+  function ensureBankCapacityFitsContents(){
+    const used = countSlots(bank);
+    if (used > getBankCapacity()){
+      setBankCapacity(used, { silent: true });
+    }
+  }
 
   function getItemCombatStatText(id){
     const item = Items[id];
@@ -2972,9 +3014,11 @@ const BGM_KEY = "classic_bgm_v1";
 
   function renderBank(){
     normalizeBankStacks();
+    ensureBankCapacityFitsContents();
     bankGrid.innerHTML = "";
-    bankCountEl.textContent = `${countSlots(bank)}/${MAX_BANK}`;
-    for (let i=0; i<MAX_BANK; i++){
+    const capacity = getBankCapacity();
+    bankCountEl.textContent = `${countSlots(bank)}/${capacity}`;
+    for (let i=0; i<capacity; i++){
       const s = bank[i];
       const slot = document.createElement("div");
       slot.className = "slot" + (s ? "" : " empty");
@@ -2997,6 +3041,24 @@ const BGM_KEY = "classic_bgm_v1";
         slot.dataset.tooltip = tip;
       }
       bankGrid.appendChild(slot);
+    }
+
+    if (bankExpandBtn){
+      const maxed = capacity >= MAX_BANK;
+      const nextCap = getBankNextCapacity(capacity);
+      const add = Math.max(0, nextCap - capacity);
+      const cost = getBankExpandCost(capacity);
+      bankExpandBtn.disabled = maxed;
+      bankExpandBtn.textContent = maxed
+        ? "Bank Maxed"
+        : `Expand +${add} Slots (${cost}g)`;
+    }
+    if (bankExpandMetaEl){
+      const maxed = capacity >= MAX_BANK;
+      const cost = getBankExpandCost(capacity);
+      bankExpandMetaEl.textContent = maxed
+        ? "All bank slots unlocked"
+        : `Next expansion: ${cost} gold`;
     }
   }
 
@@ -3569,6 +3631,30 @@ const BGM_KEY = "classic_bgm_v1";
     renderBank();
   }
 
+  function buyBankExpansion(){
+    if (!availability.bank){
+      chatLine(`<span class="warn">You must be at a bank chest.</span>`);
+      return;
+    }
+
+    const current = getBankCapacity();
+    if (current >= MAX_BANK){
+      chatLine(`<span class="muted">Your bank is already at max capacity.</span>`);
+      return;
+    }
+
+    const cost = getBankExpandCost(current);
+    if ((wallet.gold | 0) < cost){
+      chatLine(`<span class="warn">You need ${cost} gold to expand your bank.</span>`);
+      return;
+    }
+    if (!spendGold(cost)) return;
+
+    const next = setBankCapacity(getBankNextCapacity(current), { silent: true });
+    renderBank();
+    chatLine(`<span class="good">Bank expanded to ${next} slots for ${cost} gold.</span>`);
+  }
+
   document.getElementById("bankDepositAll").addEventListener("click", () => {
     if (!availability.bank) return chatLine(`<span class="warn">You must be at a bank chest.</span>`);
     for (let i=0;i<MAX_INV;i++){
@@ -3585,7 +3671,7 @@ const BGM_KEY = "classic_bgm_v1";
 
   document.getElementById("bankWithdrawAll").addEventListener("click", () => {
     if (!availability.bank) return chatLine(`<span class="warn">You must be at a bank chest.</span>`);
-    for (let i=0;i<MAX_BANK;i++){
+    for (let i=0;i<getBankCapacity();i++){
       const s=bank[i]; if (!s) continue;
       const item=Items[s.id];
       if (!item) continue;
@@ -3604,6 +3690,12 @@ const BGM_KEY = "classic_bgm_v1";
     }
     renderInv(); renderBank();
   });
+
+  if (bankExpandBtn){
+    bankExpandBtn.addEventListener("click", () => {
+      buyBankExpansion();
+    });
+  }
 
   // ---------- Inventory use state + item actions ----------
   const {
@@ -4430,6 +4522,7 @@ const BGM_KEY = "classic_bgm_v1";
     for (const k of Object.keys(Skills)) Skills[k].xp = 0;
     clearSlots(inv);
     clearSlots(bank);
+    setBankCapacity(BANK_START_SLOTS, { silent: true });
     quiver.wooden_arrow = 0;
     wallet.gold = 0;
 
@@ -4475,6 +4568,7 @@ initWorldSeed();
     for (const k of Object.keys(Skills)) Skills[k].xp = 0;
 
     clearSlots(bank);
+    setBankCapacity(BANK_START_SLOTS, { silent: true });
     quiver.wooden_arrow = 0;
     wallet.gold = 0;
     resetQuestProgress();
@@ -7374,6 +7468,9 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
     addGold,
     addToInventory,
     MAX_BANK,
+    BANK_START_SLOTS,
+    getBankCapacity,
+    setBankCapacity,
     setZoom,
     manualDropLocks,
     getQuestSnapshot,

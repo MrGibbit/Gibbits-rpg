@@ -266,7 +266,7 @@
     </div>
     <div class="window hidden" id="winBank" style="left:760px; top:70px; width:520px; height:520px;">
       <div class="winHeader" id="hdrBank">
-        <div class="title">Bank <span class="pill" id="bankCount">0/56</span></div>
+        <div class="title">Bank <span class="pill" id="bankCount">0/20</span></div>
         <button class="winClose" data-close="bank" title="Close">X</button>
       </div>
 
@@ -274,10 +274,12 @@
         <div class="btnrow">
           <button id="bankDepositAll">Deposit All</button>
           <button id="bankWithdrawAll">Withdraw All</button>
+          <button id="bankExpandBtn">Expand +7 Slots</button>
           <div class="pill" id="bankHint">Click inv to deposit, click bank to withdraw</div>
+          <div class="pill" id="bankExpandMeta">Next expansion: 250 gold</div>
         </div>
 
-        <div class="inv" id="bankGrid" style="grid-template-columns:repeat(7, 1fr);"></div>
+        <div class="inv" id="bankGrid"></div>
 
         <div class="hint">
           Bank stacks where allowed. Inventory only stacks ammo (but arrows are stored in quiver).

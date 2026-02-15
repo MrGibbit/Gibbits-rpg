@@ -345,8 +345,12 @@ export const wallet = { gold: 0 };
 
 export const MAX_INV = 28;
 export const MAX_BANK = 56;
+export const BANK_START_SLOTS = 20;
 export const inv = Array.from({ length: MAX_INV }, () => null);
 export const bank = Array.from({ length: MAX_BANK }, () => null);
+export const bankMeta = {
+  capacity: BANK_START_SLOTS
+};
 
 // ---------- Quiver ----------
 export const quiver = {

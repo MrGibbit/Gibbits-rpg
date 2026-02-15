@@ -40,6 +40,9 @@ export function createPersistence(deps) {
     addGold,
     addToInventory,
     MAX_BANK,
+    BANK_START_SLOTS,
+    getBankCapacity,
+    setBankCapacity,
     setZoom,
     manualDropLocks,
     onZoneChanged,
@@ -51,6 +54,7 @@ export function createPersistence(deps) {
   const OVERWORLD_ZONE = "overworld";
   const DUNGEON_ZONE = "dungeon";
   const ZONE_ORDER = [OVERWORLD_ZONE, DUNGEON_ZONE];
+  const DEFAULT_BANK_CAPACITY = Math.max(1, (BANK_START_SLOTS | 0) || 14);
 
   function getKnownZoneKeys() {
     if (typeof getZoneState !== "function") return [OVERWORLD_ZONE];
@@ -188,6 +192,9 @@ export function createPersistence(deps) {
       skills: Object.fromEntries(Object.entries(Skills).map(([k, v]) => [k, v.xp])),
       inv,
       bank,
+      bankCapacity: (typeof getBankCapacity === "function")
+        ? Math.max(1, getBankCapacity() | 0)
+        : DEFAULT_BANK_CAPACITY,
       zoom: view.zoom,
       equipment: { ...equipment },
       quiver: { ...quiver },
@@ -458,7 +465,7 @@ export function createPersistence(deps) {
   }
 
   function restoreBankFromSave(data) {
-    if (!Array.isArray(data?.bank)) return;
+    if (!Array.isArray(data?.bank)) return 0;
     clearSlots(bank);
     const totals = new Map();
     const order = [];
@@ -484,10 +491,12 @@ export function createPersistence(deps) {
       totals.set(id, (totals.get(id) | 0) + qty);
     }
 
-    for (let i = 0; i < Math.min(MAX_BANK, order.length); i++) {
+    const restoredSlots = Math.min(MAX_BANK, order.length);
+    for (let i = 0; i < restoredSlots; i++) {
       const id = order[i];
       bank[i] = { id, qty: totals.get(id) | 0 };
     }
+    return restoredSlots;
   }
 
   function deserialize(str) {
@@ -551,7 +560,13 @@ export function createPersistence(deps) {
     }
 
     restoreInventoryFromSave(data);
-    restoreBankFromSave(data);
+    const restoredBankSlots = restoreBankFromSave(data);
+    if (typeof setBankCapacity === "function") {
+      const savedCapacity = (typeof data?.bankCapacity === "number" && Number.isFinite(data.bankCapacity))
+        ? (data.bankCapacity | 0)
+        : ((typeof getBankCapacity === "function") ? (getBankCapacity() | 0) : DEFAULT_BANK_CAPACITY);
+      setBankCapacity(Math.max(savedCapacity, restoredBankSlots), { silent: true });
+    }
 
     if (data?.equipment) {
       equipment.weapon = data.equipment.weapon ?? null;
