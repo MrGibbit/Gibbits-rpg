@@ -214,8 +214,13 @@ export function createMobAI(deps) {
 
       const def = MOB_DEFS[m.type] ?? {};
       const typeKey = String(m.type || "").toLowerCase();
-      const aggroRange = Number.isFinite(def.aggroRange) ? def.aggroRange : 4.0;
-      const leash = Number.isFinite(def.leash) ? def.leash : 7.0;
+      let aggroRange = Number.isFinite(def.aggroRange) ? def.aggroRange : 4.0;
+      let leash = Number.isFinite(def.leash) ? def.leash : 7.0;
+      if (typeKey === "skeleton_warden") {
+        // Keep the warden engaged from anywhere in the boss room up to the wing doors.
+        aggroRange = Math.max(aggroRange, 14.5);
+        leash = Math.max(leash, 14.5);
+      }
       const attackRange = Number.isFinite(def.attackRange) ? def.attackRange : 1.15;
       const atkSpeed = Number.isFinite(def.attackSpeedMs) ? def.attackSpeedMs : 1300;
       const aggroOnSight = (typeKey === "rat") ? false : (def.aggroOnSight !== false);
