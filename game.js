@@ -33,6 +33,14 @@ import { createFXRenderer } from "./src/fx-render.js";
 import { createActionResolver } from "./src/action-resolver.js";
 import { createMinimap } from "./src/minimap.js";
 import { createXPOrbs } from "./src/xp-orbs.js";
+import { createItemUse } from "./src/item-use.js";
+import { createContextMenuUI } from "./src/context-menu-ui.js";
+import { attachInventoryContextMenus } from "./src/inventory-context-menus.js";
+import { attachInventoryInputHandlers } from "./src/inventory-input-handlers.js";
+import { createDebugAPI } from "./src/debug-api.js";
+import { createCharacterStorage } from "./src/character-storage.js";
+import { createCharacterProfiles } from "./src/character-profiles.js";
+import { createStartOverlayUI } from "./src/start-overlay-ui.js";
 
 // Keep this local so game.js doesn't hard-fail if a stale cached state module is loaded.
 const vendorShop = { x0: 16, y0: 3, w: 8, h: 6 };
@@ -469,6 +477,14 @@ function levelStrokeForCls(cls){
     crude_sword: { id:"crude_sword", name:"Crude Sword", stack:false, icon:icon("sword", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("sword"), equipSlot:"weapon", combat:{ style:"melee", att:2, dmg:2 } },
     crude_shield: { id:"crude_shield", name:"Crude Shield", stack:false, icon:icon("shield", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("shield"), equipSlot:"offhand", combat:{ style:"any", def:2 } },
     bone: { id:"bone", name:"Bone", stack:true, icon:icon("bone", "#7d868e", "#4c545c", "#24292e"), flatIcon:flatIcon("bone") },
+    bone_meal: {
+      id:"bone_meal",
+      name:"Bone Meal",
+      stack:true,
+      hint:"Will enrich soil once Farming is added.",
+      icon:icon("ore", "#d5d8de", "#8c939f", "#414753"),
+      flatIcon:flatIcon("ore")
+    },
     rat_meat: {
       id:"rat_meat",
       name:"Raw Rat Meat",
@@ -1530,8 +1546,6 @@ placeInteractable("anvil", sx + 2, sy);
   const WINDOWS_UI_KEY = "classic_windows_ui_v2_multi_open";
 const BGM_KEY = "classic_bgm_v1";
 
-  let activeCharacterId = null;
-
   const hudChatEl = document.getElementById("hudChat");
   const hudChatTabEl = document.getElementById("hudChatTab");
   const hudChatHeaderEl = document.getElementById("hudChatHeader");
@@ -2084,7 +2098,8 @@ const BGM_KEY = "classic_bgm_v1";
   };
 
   function getItemCombatStatText(id){
-    const c = Items[id]?.combat;
+    const item = Items[id];
+    const c = item?.combat;
     const parts = [];
     if (c?.style && c.style !== "any"){
       const style = String(c.style);
@@ -2095,6 +2110,7 @@ const BGM_KEY = "classic_bgm_v1";
     if ((c?.def|0) !== 0) parts.push(`+${c.def|0} DEF`);
     const reqLine = getEquipRequirementLine(id);
     if (reqLine) parts.push(reqLine);
+    if (item?.hint) parts.push(item.hint);
     return parts.join(" · ");
   }
 
@@ -2881,458 +2897,102 @@ const BGM_KEY = "classic_bgm_v1";
     renderInv(); renderBank();
   });
 
-  // ---------- Inventory use state + fletching ----------
-  function setUseState(id){
-    useState.activeItemId = id;
-    if (!id){ invUseStateEl.textContent = "Use: none"; return; }
-    const item = Items[id];
-    invUseStateEl.textContent = `Use: ${item ? item.name : id}`;
-  }
-
-  function tryItemOnItem(toolId, targetId, targetIndex){
-    if (toolId === "knife" && targetId === "log"){
-      const lvl = levelFromXP(Skills.fletching.xp);
-      if (lvl < 1){
-        chatLine(`<span class="warn">Your Fletching level is too low.</span>`);
-        return true;
-      }
-
-      inv[targetIndex] = null;
-
-      addToQuiver("wooden_arrow", 25);
-      chatLine(`You fletch 25 wooden arrows.`);
-      addXP("fletching", 10);
-
-      renderInv();
-      return true;
-    }
-// Flint and steel + log => light fire under player, step south
-// Flint and steel + log => light fire under player, then step south (RS-style)
-if (toolId === "flint_steel" && targetId === "log") {
-  if (player.action.type !== "idle"){
-    chatLine(`<span class="warn">You're busy.</span>`);
-    return true;
-  }
-  // Don't allow lighting fires indoors
-  if (isIndoors(player.x, player.y)){
-    chatLine(`<span class="warn">You can't light a fire indoors.</span>`);
-    return true;
-  }
-
-
-  // Must be standing on an empty tile (no bank/vendor/mob/resource/fire)
-  if (getEntityAt(player.x, player.y)){
-    chatLine(`<span class="warn">That space is occupied.</span>`);
-    return true;
-  }
-
-  // lock player in place while lighting
-  player.path = [];
-  syncPlayerPix();
-
-  startTimedAction("firemake", 1.2, "Lighting fireâ€¦", () => {
-    // Re-check tile (something could have spawned / moved here)
-    if (getEntityAt(player.x, player.y)){
-      chatLine(`<span class="warn">That space is occupied.</span>`);
-      return;
-    }
-    if (isIndoors(player.x, player.y)){
-      chatLine(`<span class="warn">You can't light a fire indoors.</span>`);
-      return;
-    }
-
-
-
-    // consume 1 log
-    if (!removeItemsFromInventory("log", 1)) {
-      chatLine(`<span class="warn">You need a log.</span>`);
-      return;
-    }
-
-    const born = now();
-    interactables.push({
-      type: "fire",
-      x: player.x,
-      y: player.y,
-      createdAt: born,
-      expiresAt: born + 60000
-    });
-
-    addXP("firemaking", 10);
-    chatLine(`<span class="good">You light a fire.</span>`);
-
-    // step south (y+1) if possible
-    const sx = player.x;
-    const sy = player.y + 1;
-    if (isWalkable(sx, sy) && !getEntityAt(sx, sy)) {
-      setPathTo(sx, sy);
-    }
+  // ---------- Inventory use state + item actions ----------
+  const {
+    setUseState,
+    tryItemOnItem,
+    isStickyUseTool,
+    handleUseOnSelf
+  } = createItemUse({
+    useState,
+    invUseStateEl,
+    Items,
+    chatLine,
+    levelFromXP,
+    Skills,
+    inv,
+    addToQuiver,
+    addXP,
+    renderInv,
+    removeItemsFromInventory,
+    addToInventory,
+    addGroundLoot,
+    player,
+    isIndoors,
+    getEntityAt: (x, y) => getEntityAt(x, y),
+    syncPlayerPix,
+    startTimedAction,
+    now,
+    interactables,
+    isWalkable,
+    setPathTo
   });
-
-  return true;
-}
-
-    chatLine(`<span class="muted">Nothing interesting happens.</span>`);
-    return false;
-  }
 
   // ---------- Context menu ----------
-  const ctxMenu = document.createElement("div");
-  ctxMenu.className = "ctxmenu hidden";
-  document.body.appendChild(ctxMenu);
-  const itemTooltip = document.createElement("div");
-  itemTooltip.className = "itemTooltip hidden";
-  document.body.appendChild(itemTooltip);
-
-  function closeCtxMenu(){
-    ctxMenu.classList.add("hidden");
-    ctxMenu.innerHTML = "";
-  }
-
-  function closeItemTooltip(){
-    itemTooltip.classList.add("hidden");
-    itemTooltip.textContent = "";
-  }
-
-  function moveItemTooltip(clientX, clientY){
-    if (itemTooltip.classList.contains("hidden")) return;
-    const pad = 10;
-    const xOff = 14;
-    const yOff = 16;
-    const rect = itemTooltip.getBoundingClientRect();
-    const x = clamp(clientX + xOff, pad, window.innerWidth - rect.width - pad);
-    const y = clamp(clientY + yOff, pad, window.innerHeight - rect.height - pad);
-    itemTooltip.style.left = `${x}px`;
-    itemTooltip.style.top = `${y}px`;
-  }
-
-  function openItemTooltip(text, clientX, clientY){
-    if (!text){
-      closeItemTooltip();
-      return;
-    }
-    itemTooltip.textContent = text;
-    itemTooltip.classList.remove("hidden");
-    moveItemTooltip(clientX, clientY);
-  }
-
-  function showSlotTooltip(e, arr){
-    const slot = e.target.closest(".slot");
-    if (!slot){
-      closeItemTooltip();
-      return;
-    }
-    const idx = parseInt(slot.dataset.index, 10);
-    if (!Number.isFinite(idx) || !arr[idx]){
-      closeItemTooltip();
-      return;
-    }
-    openItemTooltip(slot.dataset.tooltip || slot.title || "", e.clientX, e.clientY);
-  }
-
-  function showElementTooltip(e){
-    const el = e.currentTarget;
-    if (!el) return;
-    openItemTooltip(el.dataset.tooltip || el.title || "", e.clientX, e.clientY);
-  }
-
-  function openCtxMenu(clientX, clientY, options){
-    ctxMenu.innerHTML = "";
-    for (const opt of options){
-      if (opt.type === "sep"){
-        const sep = document.createElement("div");
-        sep.className = "sep";
-        ctxMenu.appendChild(sep);
-        continue;
-      }
-      const b = document.createElement("button");
-      if (opt.className) b.classList.add(opt.className);
-      b.textContent = opt.label;
-      b.onclick = ()=>{
-        closeCtxMenu();
-        opt.onClick();
-      };
-      ctxMenu.appendChild(b);
-    }
-
-    ctxMenu.classList.remove("hidden");
-    const rect = ctxMenu.getBoundingClientRect();
-    const pad = 8;
-    ctxMenu.style.left = `${clamp(clientX, pad, window.innerWidth - rect.width - pad)}px`;
-    ctxMenu.style.top = `${clamp(clientY, pad, window.innerHeight - rect.height - pad)}px`;
-  }
-
-  document.addEventListener("mousedown", (e)=>{
-    if (!ctxMenu.classList.contains("hidden") && !ctxMenu.contains(e.target)){
-      closeCtxMenu();
-    }
-    closeItemTooltip();
-  });
-  document.addEventListener("keydown", (e)=>{
-    if (e.key === "Escape"){
-      closeCtxMenu();
-      closeItemTooltip();
-    }
-  });
-  window.addEventListener("blur", ()=>{
-    closeCtxMenu();
-    closeItemTooltip();
+  const { openCtxMenu, closeCtxMenu } = createContextMenuUI({
+    clamp,
+    invGrid,
+    bankGrid,
+    eqWeaponSlot,
+    eqOffhandSlot,
+    eqQuiverSlot,
+    inv,
+    bank
   });
 
-  invGrid.addEventListener("mousemove", (e)=> showSlotTooltip(e, inv));
-  bankGrid.addEventListener("mousemove", (e)=> showSlotTooltip(e, bank));
-  invGrid.addEventListener("mouseleave", closeItemTooltip);
-  bankGrid.addEventListener("mouseleave", closeItemTooltip);
-  if (eqWeaponSlot){
-    eqWeaponSlot.addEventListener("mousemove", showElementTooltip);
-    eqWeaponSlot.addEventListener("mouseleave", closeItemTooltip);
-  }
-  if (eqOffhandSlot){
-    eqOffhandSlot.addEventListener("mousemove", showElementTooltip);
-    eqOffhandSlot.addEventListener("mouseleave", closeItemTooltip);
-  }
-  if (eqQuiverSlot){
-    eqQuiverSlot.addEventListener("mousemove", showElementTooltip);
-    eqQuiverSlot.addEventListener("mouseleave", closeItemTooltip);
-  }
-
-  // ---------- Right-click on inventory items: Equip / Use / Drop ----------
-  invGrid.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    const slot = e.target.closest(".slot");
-    if (!slot) return;
-    const idx = parseInt(slot.dataset.index,10);
-    const s = inv[idx];
-    if (!s) return;
-
-    const item=Items[s.id];
-
-    if (windowsOpen.bank){
-      const have = countInvQtyById(s.id);
-      const opts = [];
-      opts.push({ label: "Deposit 1", onClick: ()=> depositByIdFromInv(idx, 1) });
-      opts.push({ label: "Deposit 5", onClick: ()=> depositByIdFromInv(idx, 5) });
-      opts.push({ label: "Deposit 10", onClick: ()=> depositByIdFromInv(idx, 10) });
-      opts.push({ label: "Deposit X...", onClick: ()=>{
-        const v = prompt("Deposit how many?", "10");
-        const n = Math.max(1, parseInt(v||"",10) || 0);
-        if (n>0) depositByIdFromInv(idx, n);
-      }});
-      opts.push({ label: "Deposit All", onClick: ()=> depositByIdFromInv(idx, have) });
-      openCtxMenu(e.clientX, e.clientY, opts);
-      return;
-    }
-
-    const opts=[];
-    if (item?.heal > 0){
-      opts.push({ label: "Eat", onClick: ()=> consumeFoodFromInv(idx) });
-    }
-
-    const slotName = canEquip(s.id);
-    if (item?.ammo){
-      opts.push({ label: "Equip", onClick: ()=> equipAmmoFromInv(idx) });
-    } else if (slotName){
-      opts.push({ label: "Equip", onClick: ()=> equipFromInv(idx) });
-    }
-
-    opts.push({ label: "Use", onClick: ()=>{
-      setUseState(s.id);
-      chatLine(`<span class="muted">You select the ${item?.name ?? s.id}.</span>`);
-    }});
-
-    opts.push({ type:"sep" });
-
-              opts.push({ type:"sep" });
-
-    opts.push({ label: "Drop", onClick: ()=>{
-      // drop to ground pile at player tile (no deletion)
-
-      if (item?.stack && (s.qty|0) > 1){
-        inv[idx] = { id: s.id, qty: (s.qty|0) - 1 };
-      } else {
-        inv[idx]=null;
-      }
-      lockManualDropAt(player.x, player.y);
-      addGroundLoot(player.x, player.y, s.id, 1);
-      renderInv();
-      chatLine(`<span class="muted">You drop the ${item?.name ?? s.id}.</span>`);
-    }});
-
-
-    opts.push({ label: "Drop X...", onClick: ()=>{
-      const v=prompt("Drop how many?", "10");
-      const n=Math.max(1, parseInt(v||"",10) || 0);
-      if (!n) return;
-
-      lockManualDropAt(player.x, player.y);
-      let dropped = 0;
-      if (item?.stack){
-        const have = Math.max(1, s.qty|0);
-        dropped = Math.min(n, have);
-        const left = have - dropped;
-        inv[idx] = left > 0 ? { id: s.id, qty: left } : null;
-        if (dropped > 0) addGroundLoot(player.x, player.y, s.id, dropped);
-      } else {
-        let remaining = n;
-        for (let i=0; i<inv.length && remaining>0; i++){
-          if (inv[i] && inv[i].id === s.id){
-            inv[i] = null;
-            addGroundLoot(player.x, player.y, s.id, 1);
-            remaining--;
-          }
-        }
-        dropped = n - remaining;
-      }
-      renderInv();
-      chatLine(`<span class="muted">You drop ${dropped}x ${item?.name ?? s.id}.</span>`);
-    }});
-
-    openCtxMenu(e.clientX, e.clientY, opts);
+  // ---------- Right-click menus ----------
+  attachInventoryContextMenus({
+    invGrid,
+    bankGrid,
+    eqWeaponSlot,
+    eqOffhandSlot,
+    eqQuiverSlot,
+    inv,
+    bank,
+    equipment,
+    Items,
+    player,
+    windowsOpen,
+    openCtxMenu,
+    countInvQtyById,
+    depositByIdFromInv,
+    consumeFoodFromInv,
+    canEquip,
+    equipAmmoFromInv,
+    equipFromInv,
+    setUseState,
+    chatLine,
+    lockManualDropAt,
+    addGroundLoot,
+    renderInv,
+    withdrawFromBank,
+    unequipSlot,
+    getQuiverCount,
+    moveAmmoFromQuiverToInventory
   });
 
-  invGrid.addEventListener("mousedown", (e) => {
-
-    const slot = e.target.closest(".slot");
-    if (!slot) return;
-    const idx = parseInt(slot.dataset.index,10);
-    if (!inv[idx]) return;
-    if (e.button !== 0) return; // only left-click
-
-
-    if (windowsOpen.bank){
-      depositFromInv(idx, 1);
-      return;
-    }
-    // Left-click food to eat.
-    if (consumeFoodFromInv(idx)) return;
-
-
-
-    if (useState.activeItemId){
-      const toolId = useState.activeItemId;
-      const targetId = inv[idx].id;
-
-      if (toolId === targetId){
-        chatLine(`<span class="muted">Nothing interesting happens.</span>`);
-        setUseState(null);
-        return;
-      }
-      const handled = tryItemOnItem(toolId, targetId, idx);
-
-// QoL: keep certain tools "sticky" so you can repeat actions (e.g., light multiple logs)
-const sticky = (toolId === "flint_steel" || toolId === "knife");
-if (!handled || !sticky) setUseState(null);
-
-return;
-
-    }
-
-    // Left-click any equippable gear (weapon/offhand/armor) to equip.
-    if (canEquip(inv[idx].id)){
-      equipFromInv(idx);
-      return;
-    }
-  });
-
-  // Bank: left-click withdraw one; right-click choose amount
-  bankGrid.addEventListener("mousedown", (e) => {
-    if (e.button !== 0) return;
-    const slot = e.target.closest(".slot");
-    if (!slot) return;
-    const idx = parseInt(slot.dataset.index,10);
-    if (!bank[idx]) return;
-    withdrawFromBank(idx, 1);
-  });
-
-  bankGrid.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    const slot = e.target.closest(".slot");
-    if (!slot) return;
-    const idx = parseInt(slot.dataset.index,10);
-    const s = bank[idx];
-    if (!s) return;
-    const item=Items[s.id];
-
-        const opts=[];
-    const suffix = item?.ammo ? " to Quiver" : "";
-    const have = Math.max(1, s.qty|0);
-    opts.push({ label: `Withdraw 1${suffix}`, onClick: ()=> withdrawFromBank(idx, 1) });
-    opts.push({ label: `Withdraw 5${suffix}`, onClick: ()=> withdrawFromBank(idx, 5) });
-    opts.push({ label: `Withdraw 10${suffix}`, onClick: ()=> withdrawFromBank(idx, 10) });
-    opts.push({ label: `Withdraw X...${suffix}`, onClick: ()=>{
-      const v = prompt("Withdraw how many?", "10");
-      const n = Math.max(1, parseInt(v||"",10) || 0);
-      if (n>0) withdrawFromBank(idx, n);
-    }});
-    opts.push({ label: `Withdraw All${suffix}`, onClick: ()=> withdrawFromBank(idx, have) });
-    openCtxMenu(e.clientX, e.clientY, opts);
-  });
-
-  // Equipment: click-to-unequip + right-click menu
-  function equipSlotContextMenu(e, slotName){
-    e.preventDefault();
-    const id = equipment[slotName];
-    if (!id) return;
-    const opts = [
-      { label: "Unequip", onClick: ()=> unequipSlot(slotName) }
-    ];
-    openCtxMenu(e.clientX, e.clientY, opts);
-  }
-
-  function moveArrowsToInventory(qty=null){
-    const before = getQuiverCount();
-    if (before <= 0){
-      chatLine(`<span class="warn">No arrows in quiver.</span>`);
-      return;
-    }
-
-    const moved = moveAmmoFromQuiverToInventory("wooden_arrow", qty);
-    if (moved <= 0){
-      chatLine(`<span class="warn">Inventory full.</span>`);
-      return;
-    }
-
-    chatLine(`<span class="muted">You move ${moved}x ${Items.wooden_arrow.name} to your inventory.</span>`);
-  }
-
-  function quiverSlotContextMenu(e){
-    e.preventDefault();
-    if (getQuiverCount() <= 0) return;
-
-    const opts = [
-      { label: "Move 1 to Inventory", onClick: ()=> moveArrowsToInventory(1) },
-      { label: "Move 10 to Inventory", onClick: ()=> moveArrowsToInventory(10) },
-      { label: "Move X...", onClick: ()=>{
-        const v = prompt("Move how many arrows to inventory?", "10");
-        const n = Math.max(1, parseInt(v||"",10) || 0);
-        if (n > 0) moveArrowsToInventory(n);
-      }},
-      { label: "Move All to Inventory", onClick: ()=> moveArrowsToInventory(null) }
-    ];
-    openCtxMenu(e.clientX, e.clientY, opts);
-  }
-
-  document.getElementById("eqWeapon").addEventListener("contextmenu", (e)=> equipSlotContextMenu(e, "weapon"));
-  document.getElementById("eqOffhand").addEventListener("contextmenu", (e)=> equipSlotContextMenu(e, "offhand"));
-  document.getElementById("eqQuiver").addEventListener("contextmenu", quiverSlotContextMenu);
-
-  document.getElementById("eqWeapon").addEventListener("mousedown", (e)=>{
-    if (e.button !== 0) return;
-    if (!equipment.weapon) return;
-    if (emptyInvSlots() <= 0){
-      chatLine(`<span class="warn">Inventory full.</span>`);
-      return;
-    }
-    unequipSlot("weapon");
-  });
-  document.getElementById("eqOffhand").addEventListener("mousedown", (e)=>{
-    if (e.button !== 0) return;
-    if (!equipment.offhand) return;
-    if (emptyInvSlots() <= 0){
-      chatLine(`<span class="warn">Inventory full.</span>`);
-      return;
-    }
-    unequipSlot("offhand");
+  attachInventoryInputHandlers({
+    invGrid,
+    bankGrid,
+    eqWeaponSlot,
+    eqOffhandSlot,
+    inv,
+    bank,
+    windowsOpen,
+    depositFromInv,
+    consumeFoodFromInv,
+    useState,
+    handleUseOnSelf,
+    setUseState,
+    tryItemOnItem,
+    isStickyUseTool,
+    canEquip,
+    equipFromInv,
+    withdrawFromBank,
+    equipment,
+    emptyInvSlots,
+    chatLine,
+    unequipSlot
   });
 
   // ---------- Character creation ----------
@@ -3363,357 +3023,62 @@ return;
     charColorPill.textContent = CLASS_DEFS[characterState.selectedClass].color;
   }
 
-  function makeCharacterId(){
-    const t = Date.now().toString(36);
-    const r = Math.random().toString(36).slice(2, 8);
-    return `char_${t}_${r}`;
-  }
+  const {
+    loadCharacterList,
+    saveCharacterList,
+    getSaveKeyForCharId,
+    readSaveDataByCharId,
+    getCharacterById,
+    getActiveCharacterId,
+    setActiveCharacterId,
+    ensureCharacterMigration,
+    loadCharacterPrefs,
+    saveCharacterPrefs,
+    getCurrentSaveKey
+  } = createCharacterStorage({
+    player,
+    classDefs: CLASS_DEFS,
+    saveKey: SAVE_KEY,
+    charKey: CHAR_KEY,
+    charListKey: CHAR_LIST_KEY,
+    activeCharIdKey: ACTIVE_CHAR_ID_KEY
+  });
 
-  function normalizeCharacter(raw){
-    if (!raw || typeof raw !== "object") return null;
-    const id = String(raw.id || "").trim();
-    const name = String(raw.name || "").trim().slice(0, 14);
-    const cls = String(raw.class || "");
-    if (!id || !name || !CLASS_DEFS[cls]) return null;
-    return {
-      id,
-      name,
-      class: cls,
-      color: CLASS_DEFS[cls].color,
-      updatedAt: Number.isFinite(raw.updatedAt) ? raw.updatedAt : 0
-    };
-  }
-
-  function loadCharacterList(){
-    let raw = null;
-    try {
-      raw = localStorage.getItem(CHAR_LIST_KEY);
-    } catch {
-      return [];
-    }
-    if (!raw) return [];
-
-    let arr = null;
-    try {
-      arr = JSON.parse(raw);
-    } catch {
-      return [];
-    }
-    if (!Array.isArray(arr)) return [];
-
-    const seen = new Set();
-    const out = [];
-    for (const row of arr){
-      const c = normalizeCharacter(row);
-      if (!c) continue;
-      if (seen.has(c.id)) continue;
-      seen.add(c.id);
-      out.push(c);
-    }
-    return out;
-  }
-
-  function saveCharacterList(list){
-    const clean = [];
-    const seen = new Set();
-    for (const row of (Array.isArray(list) ? list : [])){
-      const c = normalizeCharacter(row);
-      if (!c) continue;
-      if (seen.has(c.id)) continue;
-      seen.add(c.id);
-      clean.push(c);
-    }
-    try {
-      localStorage.setItem(CHAR_LIST_KEY, JSON.stringify(clean));
-    } catch {}
-  }
-
-  function getSaveKeyForCharId(charId){
-    return `${SAVE_KEY}::${charId}`;
-  }
-
-  function readSaveDataByCharId(charId){
-    if (!charId) return null;
-    let raw = null;
-    try {
-      raw = localStorage.getItem(getSaveKeyForCharId(charId));
-    } catch {
-      return null;
-    }
-    if (!raw) return null;
-
-    let data = null;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      return null;
-    }
-    return { raw, data };
-  }
-
-  function persistActiveCharacterId(){
-    try {
-      if (activeCharacterId) localStorage.setItem(ACTIVE_CHAR_ID_KEY, activeCharacterId);
-      else localStorage.removeItem(ACTIVE_CHAR_ID_KEY);
-    } catch {}
-  }
-
-  function getCharacterById(charId){
-    if (!charId) return null;
-    return loadCharacterList().find(c => c.id === charId) ?? null;
-  }
-
-  function getActiveCharacterId(){
-    if (activeCharacterId && getCharacterById(activeCharacterId)) return activeCharacterId;
-
-    const list = loadCharacterList();
-    let savedId = null;
-    try {
-      savedId = localStorage.getItem(ACTIVE_CHAR_ID_KEY);
-    } catch {}
-
-    if (!savedId || !list.some(c => c.id === savedId)){
-      savedId = list[0]?.id ?? null;
-    }
-
-    activeCharacterId = savedId || null;
-    persistActiveCharacterId();
-    return activeCharacterId;
-  }
-
-  function setActiveCharacterId(charId){
-    if (!charId || !getCharacterById(charId)) {
-      activeCharacterId = null;
-    } else {
-      activeCharacterId = charId;
-    }
-    persistActiveCharacterId();
-  }
-
-  function ensureCharacterMigration(){
-    const list = loadCharacterList();
-    if (list.length){
-      getActiveCharacterId();
-      return;
-    }
-
-    let legacy = null;
-    try {
-      const raw = localStorage.getItem(CHAR_KEY);
-      legacy = raw ? JSON.parse(raw) : null;
-    } catch {}
-
-    let fromLegacy = null;
-    if (legacy?.name && legacy?.class && CLASS_DEFS[legacy.class]){
-      fromLegacy = {
-        id: makeCharacterId(),
-        name: String(legacy.name).trim().slice(0, 14) || "Adventurer",
-        class: legacy.class,
-        color: CLASS_DEFS[legacy.class].color,
-        updatedAt: Date.now()
-      };
-    } else {
-      let legacySave = null;
-      try {
-        legacySave = localStorage.getItem(SAVE_KEY);
-      } catch {}
-      if (legacySave){
-        try {
-          const d = JSON.parse(legacySave);
-          const nm = String(d?.player?.name || "").trim().slice(0, 14);
-          const cls = String(d?.player?.class || "");
-          if (nm && CLASS_DEFS[cls]){
-            fromLegacy = {
-              id: makeCharacterId(),
-              name: nm,
-              class: cls,
-              color: CLASS_DEFS[cls].color,
-              updatedAt: Date.now()
-            };
-          }
-        } catch {}
-      }
-    }
-
-    if (!fromLegacy) return;
-
-    saveCharacterList([fromLegacy]);
-    setActiveCharacterId(fromLegacy.id);
-
-    let oldSave = null;
-    try {
-      oldSave = localStorage.getItem(SAVE_KEY);
-    } catch {}
-    if (oldSave){
-      try {
-        localStorage.setItem(getSaveKeyForCharId(fromLegacy.id), oldSave);
-      } catch {}
-    }
-  }
-
-  function loadCharacterPrefs(){
-    const id = getActiveCharacterId();
-    return id ? getCharacterById(id) : null;
-  }
-
-  function saveCharacterPrefs(options = {}){
-    const createNew = !!options.createNew;
-    const list = loadCharacterList();
-    const cls = CLASS_DEFS[player.class] ? player.class : "Warrior";
-    const color = CLASS_DEFS[cls].color;
-    const name = (String(player.name || "Adventurer").trim().slice(0, 14) || "Adventurer");
-    const t = Date.now();
-
-    if (createNew){
-      const created = {
-        id: makeCharacterId(),
-        name,
-        class: cls,
-        color,
-        updatedAt: t
-      };
-      list.unshift(created);
-      saveCharacterList(list);
-      setActiveCharacterId(created.id);
-      return created;
-    }
-
-    const id = getActiveCharacterId();
-    const idx = list.findIndex(c => c.id === id);
-    if (idx >= 0){
-      list[idx] = { ...list[idx], name, class: cls, color, updatedAt: t };
-      saveCharacterList(list);
-      setActiveCharacterId(list[idx].id);
-      return list[idx];
-    }
-
-    const created = {
-      id: makeCharacterId(),
-      name,
-      class: cls,
-      color,
-      updatedAt: t
-    };
-    list.unshift(created);
-    saveCharacterList(list);
-    setActiveCharacterId(created.id);
-    return created;
-  }
-
-  function getCurrentSaveKey(){
-    const id = getActiveCharacterId();
-    return id ? getSaveKeyForCharId(id) : SAVE_KEY;
-  }
-
-  function getStoredCharacterProfile(charId = getActiveCharacterId()){
-    if (!charId) return null;
-    const saved = getCharacterById(charId);
-    if (!saved) return null;
-
-    const cls = saved.class;
-    const name = String(saved.name || "").trim().slice(0, 14);
-    if (!name || !cls || !CLASS_DEFS[cls]) return null;
-
-    return {
-      id: saved.id,
-      name,
-      class: cls,
-      color: CLASS_DEFS[cls].color
-    };
-  }
-
-  function getStoredSaveProfile(charId = getActiveCharacterId()){
-    const row = readSaveDataByCharId(charId);
-    if (!row?.data?.player) return null;
-    const data = row.data;
-    const charMeta = getCharacterById(charId);
-    const cls = data.player.class;
-    const name = String(data.player.name || "Adventurer").slice(0, 14);
-    const hp = Math.max(0, data.player.hp | 0);
-    const maxHp = Math.max(1, data.player.maxHp | 0);
-    const savedAt = normalizeSavedAt(data.savedAt, charMeta?.updatedAt);
-    const sx = data?.skills ?? {};
-    const combatLevel = Math.max(1, calcCombatLevelFromLevels({
-      accuracy: levelFromXP(sx.accuracy | 0),
-      power: levelFromXP(sx.power | 0),
-      defense: levelFromXP(sx.defense | 0),
-      ranged: levelFromXP(sx.ranged | 0),
-      sorcery: levelFromXP(sx.sorcery | 0),
-      health: levelFromXP(sx.health | 0),
-    }));
-
-    return {
-      name,
-      class: (cls && CLASS_DEFS[cls]) ? cls : "Unknown",
-      hp,
-      maxHp,
-      savedAt,
-      combatLevel
-    };
-  }
-
-  function normalizeSavedAt(rawSavedAt, fallbackMs = null){
-    const n = Number(rawSavedAt);
-    if (Number.isFinite(n) && n > 0){
-      // Current format: epoch milliseconds.
-      if (n >= 1e12) return Math.floor(n);
-      // Legacy format compatibility: epoch seconds.
-      if (n >= 1e9 && n < 1e12) return Math.floor(n * 1000);
-    }
-
-    const fallback = Number(fallbackMs);
-    if (Number.isFinite(fallback) && fallback > 0){
-      return Math.floor(fallback);
-    }
-    return null;
-  }
-
-  function formatSavedAtLabel(savedAt){
-    if (!Number.isFinite(savedAt) || savedAt <= 0) return "Unknown time";
-    const d = new Date(savedAt);
-    if (Number.isNaN(d.getTime())) return "Unknown time";
-    return d.toLocaleString();
-  }
+  const {
+    getStoredCharacterProfile,
+    getStoredSaveProfile,
+    formatSavedAtLabel
+  } = createCharacterProfiles({
+    getActiveCharacterId,
+    getCharacterById,
+    readSaveDataByCharId,
+    classDefs: CLASS_DEFS,
+    calcCombatLevelFromLevels,
+    levelFromXP
+  });
 
   function closeLoadCharOverlay(){
     if (!loadCharOverlay) return;
     loadCharOverlay.style.display = "none";
   }
 
-  function closeStartOverlay(){
-    if (!startOverlay) return;
-    startOverlay.style.display = "none";
-  }
-
-  function refreshStartOverlay(){
-    if (!startOverlay) return;
-
-    const charProfile = getStoredCharacterProfile();
-    const saveProfile = getStoredSaveProfile();
-
-    if (startCharStatus) startCharStatus.textContent = charProfile ? "Ready" : "No Character";
-    if (startCharMeta){
-      startCharMeta.textContent = charProfile
-        ? `${charProfile.name} the ${charProfile.class}${getActiveCharacterId() ? " (Active)" : ""}`
-        : "Create a character to start a new game.";
-    }
-
-    if (startSaveStatus) startSaveStatus.textContent = saveProfile ? "Available" : "No Save";
-    if (startSaveMeta){
-      startSaveMeta.textContent = saveProfile
-        ? `${saveProfile.name} the ${saveProfile.class} - HP ${saveProfile.hp}/${saveProfile.maxHp} - Saved ${formatSavedAtLabel(saveProfile.savedAt)}`
-        : "No save data found yet.";
-    }
-
-    if (startContinueBtn) startContinueBtn.disabled = !saveProfile;
-    if (startNewGameBtn) startNewGameBtn.textContent = charProfile ? "New Game" : "Create Character";
-  }
-
-  function openStartOverlay(){
-    if (!startOverlay) return;
-    refreshStartOverlay();
-    startOverlay.style.display = "flex";
-  }
+  const {
+    closeStartOverlay,
+    refreshStartOverlay,
+    openStartOverlay
+  } = createStartOverlayUI({
+    startOverlay,
+    startCharStatus,
+    startCharMeta,
+    startSaveStatus,
+    startSaveMeta,
+    startContinueBtn,
+    startNewGameBtn,
+    getStoredCharacterProfile,
+    getStoredSaveProfile,
+    getActiveCharacterId,
+    formatSavedAtLabel
+  });
 
   let createNewCharacterPending = false;
 
@@ -6800,90 +6165,35 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
     openStartOverlay();
   };
 
-  function getDebugState(){
-    return {
-      zone: getActiveZone(),
-      player: {
-        x: player.x | 0,
-        y: player.y | 0,
-        hp: player.hp | 0,
-        maxHp: player.maxHp | 0,
-        class: player.class,
-        name: player.name
-      },
-      counts: {
-        mobs: mobs.length | 0,
-        resources: resources.length | 0,
-        interactables: interactables.length | 0,
-        lootPiles: groundLoot.size | 0
-      },
-      windowsOpen: { ...windowsOpen }
-    };
-  }
-
-  function mountDebugApi(){
-    if (!DEBUG_API_ENABLED) return;
-
-    const api = {
-      testMode: TEST_MODE,
-      getState: () => getDebugState(),
-      getLadders: () => ({
-        overworldDown: { ...OVERWORLD_LADDER_DOWN },
-        dungeonUp: { ...DUNGEON_LADDER_UP }
-      }),
-      newGame: () => {
-        startNewGame();
-        return getDebugState();
-      },
-      setZone: (zoneKey, options = {}) => {
-        const key = String(zoneKey || "").toLowerCase();
-        const spawn = (options?.spawn !== false);
-        const changed = setCurrentZone(key);
-        if (spawn) {
-          const p = defaultSpawnForZone(key);
-          teleportPlayerTo(p.x, p.y, { requireWalkable: false, invulnMs: 1200 });
-        } else {
-          updateCamera();
-        }
-        return { changed, zone: getActiveZone(), ok: (getActiveZone() === key) };
-      },
-      interactTile: (x, y) => {
-        const tx = x | 0;
-        const ty = y | 0;
-        if (!inBounds(tx, ty)) return { ok: false, reason: "out_of_bounds" };
-        const ent = getEntityAt(tx, ty);
-        if (!ent) return { ok: false, reason: "no_entity" };
-        if (ent.kind === "decor") return { ok: false, reason: "decor_only", kind: ent.kind };
-        beginInteraction(ent);
-        return { ok: true, kind: ent.kind };
-      },
-      useLadder: (direction) => useLadder(direction),
-      teleport: (x, y, options = {}) => teleportPlayerTo(x, y, options),
-      saveNow: () => {
-        saveCharacterPrefs({ createNew: false });
-        localStorage.setItem(getCurrentSaveKey(), serialize());
-        return true;
-      },
-      loadNow: () => {
-        const raw = localStorage.getItem(getCurrentSaveKey());
-        if (!raw) return false;
-        deserialize(raw);
-        return true;
-      },
-      clearSave: () => {
-        localStorage.removeItem(getCurrentSaveKey());
-        return true;
-      },
-      tickMs: (ms = 16) => {
-        const dt = clamp((Number(ms) || 0) / 1000, 0, 0.25);
-        update(dt);
-        render();
-        return getDebugState();
-      }
-    };
-
-    window.__classicRpg = api;
-  }
+  const { mountDebugApi } = createDebugAPI({
+    debugApiEnabled: DEBUG_API_ENABLED,
+    testMode: TEST_MODE,
+    getActiveZone,
+    player,
+    mobs,
+    resources,
+    interactables,
+    groundLoot,
+    windowsOpen,
+    overworldLadderDown: OVERWORLD_LADDER_DOWN,
+    dungeonLadderUp: DUNGEON_LADDER_UP,
+    startNewGame,
+    setCurrentZone,
+    defaultSpawnForZone,
+    teleportPlayerTo,
+    updateCamera,
+    inBounds,
+    getEntityAt,
+    beginInteraction,
+    useLadder,
+    saveCharacterPrefs,
+    getCurrentSaveKey,
+    serialize,
+    deserialize,
+    clamp,
+    update,
+    render
+  });
 
   // ---------- Background Music ----------
   const bgm = document.getElementById("bgm");

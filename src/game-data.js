@@ -74,7 +74,8 @@ export const DEFAULT_VENDOR_SELL_ONLY_PRICES = {
   crude_bar: 6,
   crude_dagger: 12,
   crude_sword: 24,
-  crude_shield: 24
+  crude_shield: 24,
+  bone_meal: 8
 };
 
 export const DEFAULT_MOB_LEVELS = {
