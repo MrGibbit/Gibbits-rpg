@@ -4,6 +4,11 @@ export function attachInventoryContextMenus(deps) {
     bankGrid,
     eqWeaponSlot,
     eqOffhandSlot,
+    eqHeadSlot,
+    eqBodySlot,
+    eqLegsSlot,
+    eqHandsSlot,
+    eqFeetSlot,
     eqQuiverSlot,
     inv,
     bank,
@@ -218,5 +223,10 @@ export function attachInventoryContextMenus(deps) {
 
   if (eqWeaponSlot) eqWeaponSlot.addEventListener("contextmenu", (e) => equipSlotContextMenu(e, "weapon"));
   if (eqOffhandSlot) eqOffhandSlot.addEventListener("contextmenu", (e) => equipSlotContextMenu(e, "offhand"));
+  if (eqHeadSlot) eqHeadSlot.addEventListener("contextmenu", (e) => equipSlotContextMenu(e, "head"));
+  if (eqBodySlot) eqBodySlot.addEventListener("contextmenu", (e) => equipSlotContextMenu(e, "body"));
+  if (eqLegsSlot) eqLegsSlot.addEventListener("contextmenu", (e) => equipSlotContextMenu(e, "legs"));
+  if (eqHandsSlot) eqHandsSlot.addEventListener("contextmenu", (e) => equipSlotContextMenu(e, "hands"));
+  if (eqFeetSlot) eqFeetSlot.addEventListener("contextmenu", (e) => equipSlotContextMenu(e, "feet"));
   if (eqQuiverSlot) eqQuiverSlot.addEventListener("contextmenu", quiverSlotContextMenu);
 }

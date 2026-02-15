@@ -167,30 +167,22 @@
       </div>
     </div>
 
-    <div class="window hidden" id="winEquipment" style="left:400px; top:70px; width:340px; height:360px;">
+    <div class="window hidden" id="winEquipment" style="left:400px; top:70px; width:360px; height:520px;">
       <div class="winHeader" id="hdrEquipment">
         <div class="title">Equipment <span class="pill" id="eqQuiverPill">Quiver: 0</span></div>
         <button class="winClose" data-close="equipment" title="Close">X</button>
       </div>
       <div class="winBody">
-        <div class="equipGrid">
-          <div class="equipSlot" id="eqWeapon" data-slot="weapon" title="Click to unequip">
-            <div class="slotBox" id="eqWeaponIcon">-</div>
+        <div class="equipBoard">
+          <div class="equipSlot equipRuneSlot" id="eqHead" data-slot="head" data-pos="head" title="Click to unequip">
+            <div class="slotBox" id="eqHeadIcon">-</div>
             <div class="meta">
-              <div class="k">Weapon</div>
-              <div class="v" id="eqWeaponName">Empty</div>
+              <div class="k">Head</div>
+              <div class="v" id="eqHeadName">Empty</div>
             </div>
           </div>
 
-          <div class="equipSlot" id="eqOffhand" data-slot="offhand" title="Click to unequip">
-            <div class="slotBox" id="eqOffhandIcon">-</div>
-            <div class="meta">
-              <div class="k">Offhand</div>
-              <div class="v" id="eqOffhandName">Empty</div>
-            </div>
-          </div>
-
-          <div class="equipSlot equipSlotStatic" id="eqQuiver" title="Arrows in your quiver">
+          <div class="equipSlot equipRuneSlot equipSlotStatic" id="eqQuiver" data-pos="quiver" title="Arrows in your quiver">
             <div class="slotBox slotBoxStack" id="eqQuiverIcon">-</div>
             <div class="meta">
               <div class="k">Quiver</div>
@@ -198,10 +190,58 @@
             </div>
             <div class="equipQty isHidden" id="eqQuiverQty">0</div>
           </div>
+
+          <div class="equipSlot equipRuneSlot" id="eqWeapon" data-slot="weapon" data-pos="weapon" title="Click to unequip">
+            <div class="slotBox" id="eqWeaponIcon">-</div>
+            <div class="meta">
+              <div class="k">Weapon</div>
+              <div class="v" id="eqWeaponName">Empty</div>
+            </div>
+          </div>
+
+          <div class="equipSlot equipRuneSlot" id="eqBody" data-slot="body" data-pos="body" title="Click to unequip">
+            <div class="slotBox" id="eqBodyIcon">-</div>
+            <div class="meta">
+              <div class="k">Body</div>
+              <div class="v" id="eqBodyName">Empty</div>
+            </div>
+          </div>
+
+          <div class="equipSlot equipRuneSlot" id="eqOffhand" data-slot="offhand" data-pos="offhand" title="Click to unequip">
+            <div class="slotBox" id="eqOffhandIcon">-</div>
+            <div class="meta">
+              <div class="k">Offhand</div>
+              <div class="v" id="eqOffhandName">Empty</div>
+            </div>
+          </div>
+
+          <div class="equipSlot equipRuneSlot" id="eqHands" data-slot="hands" data-pos="hands" title="Click to unequip">
+            <div class="slotBox" id="eqHandsIcon">-</div>
+            <div class="meta">
+              <div class="k">Hands</div>
+              <div class="v" id="eqHandsName">Empty</div>
+            </div>
+          </div>
+
+          <div class="equipSlot equipRuneSlot" id="eqLegs" data-slot="legs" data-pos="legs" title="Click to unequip">
+            <div class="slotBox" id="eqLegsIcon">-</div>
+            <div class="meta">
+              <div class="k">Legs</div>
+              <div class="v" id="eqLegsName">Empty</div>
+            </div>
+          </div>
+
+          <div class="equipSlot equipRuneSlot" id="eqFeet" data-slot="feet" data-pos="feet" title="Click to unequip">
+            <div class="slotBox" id="eqFeetIcon">-</div>
+            <div class="meta">
+              <div class="k">Feet</div>
+              <div class="v" id="eqFeetName">Empty</div>
+            </div>
+          </div>
         </div>
 
         <div class="hint">
-          Click weapon/offhand to unequip. Right-click Quiver to move arrows to inventory.
+          Click equipped slots to unequip. Right-click Quiver to move arrows to inventory. No ring, neck, or cape slots.
         </div>
       </div>
     </div>
@@ -320,6 +360,20 @@
         <div class="shopPane" id="smithingList"></div>
         <div class="hint">
           Recipes are shown for bar types currently in your inventory. Use the furnace to smelt bars first.
+        </div>
+      </div>
+    </div>
+
+    <div class="window hidden" id="winBlacksmith" style="left:760px; top:120px; width:520px; height:440px;">
+      <div class="winHeader" id="hdrBlacksmith">
+        <div class="title">Blacksmith <span class="pill" id="blacksmithGoldPill">Gold: 0</span></div>
+        <button class="winClose" data-close="blacksmith" title="Close">X</button>
+      </div>
+
+      <div class="winBody">
+        <div class="shopPane" id="blacksmithList"></div>
+        <div class="hint">
+          Torren can install permanent forge upgrades that change the world.
         </div>
       </div>
     </div>

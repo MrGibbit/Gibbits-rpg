@@ -1,5 +1,68 @@
 const { test, expect } = require("@playwright/test");
 
+async function applySavePatch(page, patch) {
+  const ok = await page.evaluate((nextPatch) => {
+    const patchData = (nextPatch && typeof nextPatch === "object") ? nextPatch : {};
+    window.__classicRpg.saveNow();
+
+    let saveKey = null;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = String(localStorage.key(i) || "");
+      if (k.includes("classic_inspired_rpg_save_v10_quiver_loot_health_windows")) {
+        saveKey = k;
+        break;
+      }
+    }
+    if (!saveKey) return false;
+
+    const raw = localStorage.getItem(saveKey);
+    if (!raw) return false;
+
+    let data = null;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return false;
+    }
+    if (!data || typeof data !== "object") return false;
+
+    if (typeof patchData.walletGold === "number") {
+      const value = Math.max(0, patchData.walletGold | 0);
+      data.wallet = { ...(data.wallet || {}), gold: value };
+    }
+
+    if (patchData.skills && typeof patchData.skills === "object") {
+      data.skills = { ...(data.skills || {}) };
+      for (const [skillKey, xp] of Object.entries(patchData.skills)) {
+        data.skills[skillKey] = Math.max(0, xp | 0);
+      }
+    }
+
+    if (Array.isArray(patchData.inv)) {
+      data.inv = patchData.inv
+        .filter((s) => s && typeof s === "object" && s.id)
+        .map((s) => ({ id: String(s.id), qty: Math.max(1, s.qty | 0) }));
+    }
+
+    localStorage.setItem(saveKey, JSON.stringify(data));
+    return window.__classicRpg.loadNow();
+  }, patch);
+
+  expect(ok).toBeTruthy();
+}
+
+async function setWalletGold(page, gold) {
+  await applySavePatch(page, { walletGold: gold });
+}
+
+async function setSkillsXp(page, skills) {
+  await applySavePatch(page, { skills });
+}
+
+async function setInventory(page, inv) {
+  await applySavePatch(page, { inv });
+}
+
 test("boot, debug API, zone swap, save/load", async ({ page }) => {
   await page.goto("/?test=1", { waitUntil: "domcontentloaded" });
 
@@ -24,6 +87,37 @@ test("boot, debug API, zone swap, save/load", async ({ page }) => {
   });
   expect(talkQuartermaster.ok).toBeTruthy();
   expect(talkQuartermaster.kind).toBe("quest_npc");
+
+  const smithBankBeforeUnlock = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(53, 34);
+  });
+  expect(smithBankBeforeUnlock.ok).toBeFalsy();
+  expect(smithBankBeforeUnlock.reason).toBe("no_entity");
+
+  await setWalletGold(page, 10000);
+
+  const nearBlacksmith = await page.evaluate(() => {
+    return window.__classicRpg.teleport(53, 33, { requireWalkable: true });
+  });
+  expect(nearBlacksmith).toBeTruthy();
+
+  const talkBlacksmith = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(52, 33);
+  });
+  expect(talkBlacksmith.ok).toBeTruthy();
+  expect(talkBlacksmith.kind).toBe("quest_npc");
+  await page.waitForFunction(() => window.__classicRpg.getState().windowsOpen.blacksmith === true);
+
+  await page.click("#blacksmithUpgradeSmithBankBtn");
+
+  const goldAfterUpgrade = await page.evaluate(() => window.__classicRpg.getGold());
+  expect(goldAfterUpgrade).toBe(0);
+
+  const smithBankAfterUnlock = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(53, 34);
+  });
+  expect(smithBankAfterUnlock.ok).toBeTruthy();
+  expect(smithBankAfterUnlock.kind).toBe("bank");
 
   const ladders = await page.evaluate(() => window.__classicRpg.getLadders());
   expect(ladders.overworldDown).toBeTruthy();
@@ -72,4 +166,228 @@ test("boot, debug API, zone swap, save/load", async ({ page }) => {
 
   const afterLoad = await page.evaluate(() => window.__classicRpg.getState());
   expect(afterLoad.zone).toBe("overworld");
+
+  const smithBankAfterLoad = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(53, 34);
+  });
+  expect(smithBankAfterLoad.ok).toBeTruthy();
+  expect(smithBankAfterLoad.kind).toBe("bank");
+});
+
+test("iron ore progression: mining and smelting require level 10 and smelt to iron bars", async ({ page }) => {
+  await page.goto("/?test=1", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => {
+    return typeof window.__classicRpg === "object" && typeof window.__classicRpg.getState === "function";
+  });
+
+  await page.evaluate(() => {
+    window.__classicRpg.clearSave();
+    window.__classicRpg.newGame();
+  });
+
+  await setInventory(page, [
+    { id: "pick", qty: 1 },
+    { id: "hammer", qty: 1 },
+    { id: "iron_ore", qty: 1 }
+  ]);
+
+  await setSkillsXp(page, { mining: 2024, smithing: 2024 }); // Level 9
+  await page.evaluate(() => window.__classicRpg.setZone("dungeon", { spawn: true }));
+
+  const lowMining = await page.evaluate(() => {
+    const moved = window.__classicRpg.teleport(24, 25, { requireWalkable: true });
+    const beforeOre = window.__classicRpg.getItemQty("iron_ore");
+    const result = window.__classicRpg.interactTile(24, 26);
+    window.__classicRpg.tickMs(16);
+    const afterOre = window.__classicRpg.getItemQty("iron_ore");
+    return { moved, beforeOre, afterOre, result };
+  });
+
+  expect(lowMining.moved).toBeTruthy();
+  expect(lowMining.result.ok).toBeTruthy();
+  expect(lowMining.result.kind).toBe("res");
+  expect(lowMining.afterOre).toBe(lowMining.beforeOre);
+
+  await setSkillsXp(page, { mining: 2025 }); // Level 10
+  await page.evaluate(() => window.__classicRpg.setZone("dungeon", { spawn: true }));
+
+  const highMining = await page.evaluate(async () => {
+    const moved = window.__classicRpg.teleport(24, 25, { requireWalkable: true });
+    const beforeOre = window.__classicRpg.getItemQty("iron_ore");
+    const result = window.__classicRpg.interactTile(24, 26);
+    await new Promise((resolve) => setTimeout(resolve, 1750));
+    window.__classicRpg.tickMs(16);
+    const afterOre = window.__classicRpg.getItemQty("iron_ore");
+    return { moved, beforeOre, afterOre, result };
+  });
+
+  expect(highMining.moved).toBeTruthy();
+  expect(highMining.result.ok).toBeTruthy();
+  expect(highMining.result.kind).toBe("res");
+  expect(highMining.afterOre).toBe(highMining.beforeOre + 1);
+
+  await setSkillsXp(page, { smithing: 2024 }); // Level 9
+  await page.evaluate(() => window.__classicRpg.setZone("overworld", { spawn: true }));
+
+  const lowSmelt = await page.evaluate(() => {
+    const moved = window.__classicRpg.teleport(49, 33, { requireWalkable: true });
+    const beforeOre = window.__classicRpg.getItemQty("iron_ore");
+    const beforeBar = window.__classicRpg.getItemQty("iron_bar");
+    const result = window.__classicRpg.interactTile(48, 33);
+    window.__classicRpg.tickMs(16);
+    const afterOre = window.__classicRpg.getItemQty("iron_ore");
+    const afterBar = window.__classicRpg.getItemQty("iron_bar");
+    return { moved, beforeOre, beforeBar, afterOre, afterBar, result };
+  });
+
+  expect(lowSmelt.moved).toBeTruthy();
+  expect(lowSmelt.result.ok).toBeTruthy();
+  expect(lowSmelt.result.kind).toBe("furnace");
+  expect(lowSmelt.afterOre).toBe(lowSmelt.beforeOre);
+  expect(lowSmelt.afterBar).toBe(lowSmelt.beforeBar);
+
+  await setSkillsXp(page, { smithing: 2025 }); // Level 10
+  await page.evaluate(() => window.__classicRpg.setZone("overworld", { spawn: true }));
+
+  const highSmelt = await page.evaluate(async () => {
+    const moved = window.__classicRpg.teleport(49, 33, { requireWalkable: true });
+    const beforeOre = window.__classicRpg.getItemQty("iron_ore");
+    const beforeBar = window.__classicRpg.getItemQty("iron_bar");
+    const result = window.__classicRpg.interactTile(48, 33);
+    await new Promise((resolve) => setTimeout(resolve, 1750));
+    window.__classicRpg.tickMs(16);
+    const afterOre = window.__classicRpg.getItemQty("iron_ore");
+    const afterBar = window.__classicRpg.getItemQty("iron_bar");
+    return { moved, beforeOre, beforeBar, afterOre, afterBar, result };
+  });
+
+  expect(highSmelt.moved).toBeTruthy();
+  expect(highSmelt.result.ok).toBeTruthy();
+  expect(highSmelt.result.kind).toBe("furnace");
+  expect(highSmelt.afterOre).toBe(highSmelt.beforeOre - 1);
+  expect(highSmelt.afterBar).toBe(highSmelt.beforeBar + 1);
+});
+
+test("iron bars show smithing recipes and can forge iron gear", async ({ page }) => {
+  await page.goto("/?test=1", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => {
+    return typeof window.__classicRpg === "object" && typeof window.__classicRpg.getState === "function";
+  });
+
+  await page.evaluate(() => {
+    window.__classicRpg.clearSave();
+    window.__classicRpg.newGame();
+  });
+
+  await setInventory(page, [
+    { id: "hammer", qty: 1 },
+    { id: "iron_bar", qty: 4 }
+  ]);
+  await setSkillsXp(page, { smithing: 3500 }); // high enough for level 12+ recipes
+  await page.evaluate(() => window.__classicRpg.setZone("overworld", { spawn: true }));
+
+  const opened = await page.evaluate(() => {
+    const moved = window.__classicRpg.teleport(51, 33, { requireWalkable: true });
+    const result = window.__classicRpg.interactTile(50, 33);
+    window.__classicRpg.tickMs(16);
+    return { moved, result };
+  });
+  expect(opened.moved).toBeTruthy();
+  expect(opened.result.ok).toBeTruthy();
+  expect(opened.result.kind).toBe("anvil");
+  await page.waitForFunction(() => window.__classicRpg.getState().windowsOpen.smithing === true);
+
+  await expect(page.locator("#smithingList .shopName", { hasText: "Iron Bar" })).toHaveCount(1);
+  const ironDaggerBtn = page.locator("#smithingList .shopRow", { hasText: "Iron Dagger" }).locator("button.shopBtn");
+  await expect(ironDaggerBtn).toBeEnabled();
+
+  const beforeCraft = await page.evaluate(() => ({
+    bars: window.__classicRpg.getItemQty("iron_bar"),
+    dagger: window.__classicRpg.getItemQty("iron_dagger")
+  }));
+  await ironDaggerBtn.click();
+  await page.waitForTimeout(1750);
+  await page.evaluate(() => window.__classicRpg.tickMs(16));
+
+  const afterCraft = await page.evaluate(() => ({
+    bars: window.__classicRpg.getItemQty("iron_bar"),
+    dagger: window.__classicRpg.getItemQty("iron_dagger")
+  }));
+  expect(afterCraft.bars).toBe(beforeCraft.bars - 1);
+  expect(afterCraft.dagger).toBe(beforeCraft.dagger + 1);
+});
+
+test("crude armor smithing supports level-gated recipes up to level 10", async ({ page }) => {
+  await page.goto("/?test=1", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => {
+    return typeof window.__classicRpg === "object" && typeof window.__classicRpg.getState === "function";
+  });
+
+  await page.evaluate(() => {
+    window.__classicRpg.clearSave();
+    window.__classicRpg.newGame();
+  });
+
+  await setInventory(page, [
+    { id: "hammer", qty: 1 },
+    { id: "crude_bar", qty: 8 }
+  ]);
+
+  await setSkillsXp(page, { smithing: 2024 }); // Level 9
+  await page.evaluate(() => window.__classicRpg.setZone("overworld", { spawn: true }));
+
+  const openSmithingLow = await page.evaluate(() => {
+    const moved = window.__classicRpg.teleport(51, 33, { requireWalkable: true });
+    const result = window.__classicRpg.interactTile(50, 33);
+    window.__classicRpg.tickMs(16);
+    return { moved, result };
+  });
+  expect(openSmithingLow.moved).toBeTruthy();
+  expect(openSmithingLow.result.ok).toBeTruthy();
+  expect(openSmithingLow.result.kind).toBe("anvil");
+  await page.waitForFunction(() => window.__classicRpg.getState().windowsOpen.smithing === true);
+
+  const bodyForgeBtnLow = page.locator("#smithingList .shopRow", { hasText: "Crude Body" }).locator("button.shopBtn");
+  await expect(bodyForgeBtnLow).toBeDisabled();
+
+  await page.locator("#smithingList .shopRow", { hasText: "Crude Helm" }).locator("button.shopBtn").click();
+  await page.waitForTimeout(1750);
+  await page.evaluate(() => window.__classicRpg.tickMs(16));
+
+  await page.locator("#smithingList .shopRow", { hasText: "Crude Legs" }).locator("button.shopBtn").click();
+  await page.waitForTimeout(1750);
+  await page.evaluate(() => window.__classicRpg.tickMs(16));
+
+  const lowCraftQty = await page.evaluate(() => ({
+    helm: window.__classicRpg.getItemQty("crude_helm"),
+    legs: window.__classicRpg.getItemQty("crude_legs"),
+    body: window.__classicRpg.getItemQty("crude_body")
+  }));
+  expect(lowCraftQty.helm).toBeGreaterThanOrEqual(1);
+  expect(lowCraftQty.legs).toBeGreaterThanOrEqual(1);
+  expect(lowCraftQty.body).toBe(0);
+
+  await setSkillsXp(page, { smithing: 2025 }); // Level 10
+
+  const openSmithingHigh = await page.evaluate(() => {
+    const moved = window.__classicRpg.teleport(51, 33, { requireWalkable: true });
+    const result = window.__classicRpg.interactTile(50, 33);
+    window.__classicRpg.tickMs(16);
+    return { moved, result };
+  });
+  expect(openSmithingHigh.moved).toBeTruthy();
+  expect(openSmithingHigh.result.ok).toBeTruthy();
+  expect(openSmithingHigh.result.kind).toBe("anvil");
+  await page.waitForFunction(() => window.__classicRpg.getState().windowsOpen.smithing === true);
+
+  const bodyForgeBtnHigh = page.locator("#smithingList .shopRow", { hasText: "Crude Body" }).locator("button.shopBtn");
+  await expect(bodyForgeBtnHigh).toBeEnabled();
+  await bodyForgeBtnHigh.click();
+  await page.waitForTimeout(1750);
+  await page.evaluate(() => window.__classicRpg.tickMs(16));
+
+  const highCraftQty = await page.evaluate(() => ({
+    body: window.__classicRpg.getItemQty("crude_body")
+  }));
+  expect(highCraftQty.body).toBeGreaterThanOrEqual(1);
 });

@@ -4,6 +4,11 @@ export function attachInventoryInputHandlers(deps) {
     bankGrid,
     eqWeaponSlot,
     eqOffhandSlot,
+    eqHeadSlot,
+    eqBodySlot,
+    eqLegsSlot,
+    eqHandsSlot,
+    eqFeetSlot,
     inv,
     bank,
     windowsOpen,
@@ -94,6 +99,66 @@ export function attachInventoryInputHandlers(deps) {
         return;
       }
       unequipSlot("offhand");
+    });
+  }
+
+  if (eqHeadSlot) {
+    eqHeadSlot.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (!equipment.head) return;
+      if (emptyInvSlots() <= 0) {
+        chatLine(`<span class="warn">Inventory full.</span>`);
+        return;
+      }
+      unequipSlot("head");
+    });
+  }
+
+  if (eqBodySlot) {
+    eqBodySlot.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (!equipment.body) return;
+      if (emptyInvSlots() <= 0) {
+        chatLine(`<span class="warn">Inventory full.</span>`);
+        return;
+      }
+      unequipSlot("body");
+    });
+  }
+
+  if (eqLegsSlot) {
+    eqLegsSlot.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (!equipment.legs) return;
+      if (emptyInvSlots() <= 0) {
+        chatLine(`<span class="warn">Inventory full.</span>`);
+        return;
+      }
+      unequipSlot("legs");
+    });
+  }
+
+  if (eqHandsSlot) {
+    eqHandsSlot.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (!equipment.hands) return;
+      if (emptyInvSlots() <= 0) {
+        chatLine(`<span class="warn">Inventory full.</span>`);
+        return;
+      }
+      unequipSlot("hands");
+    });
+  }
+
+  if (eqFeetSlot) {
+    eqFeetSlot.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (!equipment.feet) return;
+      if (emptyInvSlots() <= 0) {
+        chatLine(`<span class="warn">Inventory full.</span>`);
+        return;
+      }
+      unequipSlot("feet");
     });
   }
 }

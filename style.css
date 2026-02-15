@@ -212,13 +212,14 @@
 
 /* Per-window minimum sizes (prevents “drag-to-see” after a player resized smaller) */
 #winInventory{ --minW: 340px; --minH: 420px; }
-#winEquipment{ --minW: 320px; --minH: 340px; }
+#winEquipment{ --minW: 350px; --minH: 500px; }
 #winSkills{ --minW: 460px; --minH: 460px; }
 #winQuests{ --minW: 420px; --minH: 460px; }
 #winXpLamp{ --minW: 380px; --minH: 420px; }
 #winBank{ --minW: 420px; --minH: 460px; }
 #winVendor{ --minW: 420px; --minH: 460px; }
 #winSmithing{ --minW: 420px; --minH: 460px; }
+#winBlacksmith{ --minW: 420px; --minH: 360px; }
 #winSettings{ --minW: 320px; --minH: 280px; }
 
 /* Small screens: relax mins */
@@ -230,6 +231,7 @@
   #winBank{ --minW: 320px; --minH: 360px; }
   #winVendor{ --minW: 320px; --minH: 360px; }
   #winSmithing{ --minW: 320px; --minH: 360px; }
+  #winBlacksmith{ --minW: 320px; --minH: 320px; }
 }
 
 
@@ -590,70 +592,119 @@
     .segBtn:hover{ background:rgba(255,255,255,.10); }
 
     /* Equipment window */
-    .equipGrid{
+    .equipBoard{
+      position:relative;
+      width:min(300px, 100%);
+      margin:2px auto 10px;
       display:grid;
-      grid-template-columns:1fr;
-      gap:10px;
-      flex:1 1 auto;
-      min-height:0;
-      overflow:auto;
-      padding-right:2px;
+      grid-template-columns:repeat(3, minmax(0, 1fr));
+      grid-template-areas:
+        ". head quiver"
+        "weapon body offhand"
+        "hands legs feet";
+      gap:14px 12px;
+      justify-items:center;
+      align-items:start;
+      padding:14px 8px 10px;
+      flex:0 0 auto;
     }
-    .equipSlot{
-      display:flex;
-      gap:10px;
-      align-items:center;
+    .equipBoard::before{
+      content:"";
+      position:absolute;
+      inset:6px;
       border-radius:14px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(0,0,0,.16);
-      padding:10px;
-      cursor:pointer;
+      border:1px solid rgba(255,255,255,.08);
+      background:
+        radial-gradient(circle at 50% 26%, rgba(255,255,255,.05), rgba(255,255,255,0) 36%),
+        radial-gradient(circle at 50% 50%, rgba(255,255,255,.035), rgba(255,255,255,0) 42%);
+      pointer-events:none;
     }
-    .equipSlot:hover{ background:rgba(255,255,255,.06); }
+    .equipRuneSlot{
+      width:86px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:5px;
+      padding:6px 4px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.18);
+      cursor:pointer;
+      z-index:1;
+    }
+    .equipRuneSlot:hover{ background:rgba(255,255,255,.06); }
+    .equipRuneSlot[data-pos="head"]{ grid-area:head; }
+    .equipRuneSlot[data-pos="quiver"]{ grid-area:quiver; }
+    .equipRuneSlot[data-pos="weapon"]{ grid-area:weapon; }
+    .equipRuneSlot[data-pos="body"]{ grid-area:body; }
+    .equipRuneSlot[data-pos="offhand"]{ grid-area:offhand; }
+    .equipRuneSlot[data-pos="hands"]{ grid-area:hands; }
+    .equipRuneSlot[data-pos="legs"]{ grid-area:legs; }
+    .equipRuneSlot[data-pos="feet"]{ grid-area:feet; }
     .equipSlotStatic{
       cursor:default;
     }
     .equipSlotStatic:hover{
-      background:rgba(0,0,0,.16);
+      background:rgba(0,0,0,.18);
     }
-    .equipSlot .slotBox{
-      width:56px; height:56px;
+    .equipRuneSlot .slotBox{
+      width:58px;
+      height:58px;
       border-radius:14px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.06);
       display:flex;
       align-items:center;
       justify-content:center;
-      font-size:24px;
+      font-size:22px;
       flex:0 0 auto;
     }
-    .equipSlot .slotBox.slotBoxStack{
+    .equipRuneSlot .slotBox.slotBoxStack{
       position:relative;
     }
-    .equipSlot .slotBox svg{
+    .equipRuneSlot .slotBox svg{
       width:30px;
       height:30px;
       display:block;
     }
-    .equipSlot .equipQty{
-      min-width:26px;
-      padding:4px 8px;
+    .equipRuneSlot .equipQty{
+      position:absolute;
+      right:-6px;
+      top:-6px;
+      min-width:22px;
+      padding:2px 6px;
       border-radius:999px;
       border:1px solid rgba(255,255,255,.16);
-      background:rgba(0,0,0,.35);
+      background:rgba(0,0,0,.44);
       color:#fff;
-      font-size:12px;
+      font-size:11px;
       font-weight:800;
       text-align:center;
-      line-height:1;
+      line-height:1.05;
       text-shadow:0 1px 2px rgba(0,0,0,.7);
     }
-    .equipSlot .equipQty.isHidden{
+    .equipRuneSlot .equipQty.isHidden{
       display:none;
     }
-    .equipSlot .meta{ flex:1; min-width:0; }
-    .equipSlot .meta .k{ font-size:12px; color:var(--muted); }
-    .equipSlot .meta .v{ font-weight:850; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .equipRuneSlot .meta{
+      width:100%;
+      text-align:center;
+      min-width:0;
+    }
+    .equipRuneSlot .meta .k{
+      font-size:11px;
+      color:var(--muted);
+      line-height:1.1;
+      letter-spacing:.02em;
+    }
+    .equipRuneSlot .meta .v{
+      font-size:12px;
+      font-weight:850;
+      margin-top:2px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
 
     .btnrow{
       display:flex;

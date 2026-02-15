@@ -48,14 +48,17 @@ export function createPersistence(deps) {
     onZoneChanged,
     renderAfterLoad,
     getQuestSnapshot,
-    applyQuestSnapshot
+    applyQuestSnapshot,
+    getWorldUpgradeSnapshot,
+    applyWorldUpgradeSnapshot
   } = deps;
 
   const OVERWORLD_ZONE = "overworld";
   const DUNGEON_ZONE = "dungeon";
   const ZONE_ORDER = [OVERWORLD_ZONE, DUNGEON_ZONE];
   const DEFAULT_BANK_CAPACITY = Math.max(1, (BANK_START_SLOTS | 0) || 14);
-  const RESOURCE_LAYOUT_VERSION = 2;
+	  const RESOURCE_LAYOUT_VERSION = 2;
+  const EQUIP_SLOTS = ["weapon", "offhand", "head", "body", "legs", "hands", "feet"];
 
   function getKnownZoneKeys() {
     if (typeof getZoneState !== "function") return [OVERWORLD_ZONE];
@@ -202,6 +205,7 @@ export function createPersistence(deps) {
       quiver: { ...quiver },
       wallet: { ...wallet },
       quests: (typeof getQuestSnapshot === "function") ? getQuestSnapshot() : null,
+      worldUpgrades: (typeof getWorldUpgradeSnapshot === "function") ? getWorldUpgradeSnapshot() : null,
       zones,
       // Legacy compatibility fields (overworld snapshot)
       groundLoot: overworldSnapshot.groundLoot,
@@ -510,6 +514,10 @@ export function createPersistence(deps) {
     const savedResourceLayoutV = Number.isFinite(data?.resourceLayoutV) ? (data.resourceLayoutV | 0) : 0;
     const forceOverworldResourceReseed = (savedResourceLayoutV !== RESOURCE_LAYOUT_VERSION);
 
+    if (typeof applyWorldUpgradeSnapshot === "function") {
+      applyWorldUpgradeSnapshot(data?.worldUpgrades ?? null);
+    }
+
     if (data?.player) {
       player.x = data.player.x | 0;
       player.y = data.player.y | 0;
@@ -577,12 +585,16 @@ export function createPersistence(deps) {
       setBankCapacity(Math.max(savedCapacity, restoredBankSlots), { silent: true });
     }
 
+    for (const slot of EQUIP_SLOTS) {
+      equipment[slot] = null;
+    }
     if (data?.equipment) {
-      equipment.weapon = data.equipment.weapon ?? null;
-      equipment.offhand = data.equipment.offhand ?? null;
-
-      if (equipment.weapon && (!Items[equipment.weapon] || Items[equipment.weapon].ammo)) equipment.weapon = null;
-      if (equipment.offhand && (!Items[equipment.offhand] || Items[equipment.offhand].ammo)) equipment.offhand = null;
+      for (const slot of EQUIP_SLOTS) {
+        equipment[slot] = data.equipment[slot] ?? null;
+        if (equipment[slot] && (!Items[equipment[slot]] || Items[equipment[slot]].ammo)) {
+          equipment[slot] = null;
+        }
+      }
     }
 
     if (typeof data?.zoom === "number") setZoom(data.zoom);

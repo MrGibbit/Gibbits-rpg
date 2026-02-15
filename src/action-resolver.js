@@ -16,6 +16,8 @@ export function createActionResolver(deps) {
     clamp,
     useState,
     COOK_RECIPES,
+    SMELTING_TIERS,
+    MINING_RESOURCE_RULES,
     hasItem,
     Items,
     startTimedAction,
@@ -50,9 +52,110 @@ export function createActionResolver(deps) {
     onMobDefeated
   } = deps;
 
+  const XP_TIER_MIN = 1;
+  const XP_TIER_MAX = 90;
+  const MINING_XP_BASE = 40;
+  const MINING_XP_TOP = 220;
+  const MINING_XP_EXPONENT = 1.35;
+  const SMELTING_XP_BASE = 20;
+  const SMELTING_XP_TOP = 160;
+  const SMELTING_XP_EXPONENT = 1.45;
+
+  function clampTier(value) {
+    return Math.max(XP_TIER_MIN, Math.min(XP_TIER_MAX, value | 0));
+  }
+
+  function xpFromTier(tier, baseXp, topXp, exponent) {
+    const t = clampTier(tier);
+    const pct = (t - XP_TIER_MIN) / (XP_TIER_MAX - XP_TIER_MIN);
+    return Math.round(baseXp + (topXp - baseXp) * Math.pow(pct, exponent));
+  }
+
+  function readTier(row) {
+    if (!row || typeof row !== "object") return XP_TIER_MIN;
+    if (Number.isFinite(row.tier)) return clampTier(row.tier);
+    if (Number.isFinite(row.level)) return clampTier(row.level);
+    return XP_TIER_MIN;
+  }
+
+  function readLevel(row) {
+    if (!row || typeof row !== "object") return 1;
+    if (Number.isFinite(row.level)) return Math.max(1, row.level | 0);
+    return Math.max(1, readTier(row));
+  }
+
+  function readSmeltingXp(row) {
+    if (Number.isFinite(row?.xp)) return Math.max(1, row.xp | 0);
+    return xpFromTier(readTier(row), SMELTING_XP_BASE, SMELTING_XP_TOP, SMELTING_XP_EXPONENT);
+  }
+
+  function readMiningXp(row) {
+    if (Number.isFinite(row?.xp)) return Math.max(1, row.xp | 0);
+    return xpFromTier(readTier(row), MINING_XP_BASE, MINING_XP_TOP, MINING_XP_EXPONENT);
+  }
+
+  const DEFAULT_SMELTING_TIERS = [
+    { oreId: "ore", barId: "crude_bar", level: 1, tier: 1, xp: 20 },
+    { oreId: "iron_ore", barId: "iron_bar", level: 10, tier: 10, xp: 25 }
+  ];
+  const DEFAULT_MINING_RESOURCE_RULES = {
+    rock: { oreId: "ore", level: 1, tier: 1, xp: 40, label: "rock" },
+    iron_rock: { oreId: "iron_ore", level: 10, tier: 10, xp: 48, label: "iron rock" }
+  };
+  const smeltingTierSource = (Array.isArray(SMELTING_TIERS) && SMELTING_TIERS.length)
+    ? SMELTING_TIERS
+    : DEFAULT_SMELTING_TIERS;
+  const smeltingTiers = smeltingTierSource
+    .map((row) => ({
+      oreId: String(row?.oreId || ""),
+      barId: String(row?.barId || ""),
+      level: readLevel(row),
+      tier: readTier(row),
+      xp: readSmeltingXp(row)
+    }))
+    .filter((row) => row.oreId && row.barId)
+    .sort((a, b) => (b.level - a.level));
+  const miningRules = (MINING_RESOURCE_RULES && typeof MINING_RESOURCE_RULES === "object" && Object.keys(MINING_RESOURCE_RULES).length)
+    ? MINING_RESOURCE_RULES
+    : DEFAULT_MINING_RESOURCE_RULES;
+
   function emitQuestEvent(payload) {
     if (typeof onQuestEvent !== "function" || !payload || typeof payload !== "object") return;
     onQuestEvent(payload);
+  }
+
+  function getMiningRule(resourceType) {
+    const key = String(resourceType || "");
+    const row = miningRules[key];
+    if (!row || typeof row !== "object") return null;
+    const oreId = String(row.oreId || "");
+    if (!oreId) return null;
+    return {
+      oreId,
+      level: readLevel(row),
+      tier: readTier(row),
+      xp: readMiningXp(row),
+      label: String(row.label || key || "resource")
+    };
+  }
+
+  function getSmeltingPlan(smithingLevel) {
+    const ownedTiers = smeltingTiers.filter((tier) => hasItem(tier.oreId));
+    if (!ownedTiers.length) return { ok: false, reason: "no_ore" };
+
+    const unlocked = ownedTiers.find((tier) => smithingLevel >= tier.level);
+    if (unlocked) return { ok: true, tier: unlocked };
+
+    const nearestTier = ownedTiers.reduce((best, tier) => {
+      if (!best) return tier;
+      return tier.level < best.level ? tier : best;
+    }, null);
+    return {
+      ok: false,
+      reason: "level",
+      requiredLevel: nearestTier ? nearestTier.level : 1,
+      tier: nearestTier
+    };
   }
 
   function stopIfInventoryFull(message = "Inventory full.") {
@@ -159,7 +262,7 @@ export function createActionResolver(deps) {
         const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]]
           .map(([dx, dy]) => ({ x: npc.x + dx, y: npc.y + dy }))
           .filter((p) => isWalkable(p.x, p.y));
-        if (!adj.length) return stopAction("No path to quartermaster.");
+        if (!adj.length) return stopAction("No path to NPC.");
         adj.sort((a, c) => (Math.abs(a.x - player.x) + Math.abs(a.y - player.y)) - (Math.abs(c.x - player.x) + Math.abs(c.y - player.y)));
         setPathTo(adj[0].x, adj[0].y);
         return;
@@ -261,33 +364,38 @@ export function createActionResolver(deps) {
       player.facing.y = clamp(fz.y - player.y, -1, 1);
 
       if (player.action.type !== "idle") return;
-
-      const hasCrudeOre = hasItem("ore");
-      const hasIronOre = hasItem("iron_ore");
-      if (!hasCrudeOre && !hasIronOre) {
+      const smithingLevel = levelFromXP(Skills.smithing?.xp ?? 0);
+      const smeltPlan = getSmeltingPlan(smithingLevel);
+      if (!smeltPlan.ok && smeltPlan.reason === "no_ore") {
         chatLine(`<span class="muted">The furnace is ready. You need ore.</span>`);
         stopAction();
         return;
       }
+      if (!smeltPlan.ok && smeltPlan.reason === "level") {
+        const oreName = Items[smeltPlan.tier?.oreId]?.name ?? smeltPlan.tier?.oreId ?? "that ore";
+        stopAction(`You need Smithing level ${smeltPlan.requiredLevel} to smelt ${oreName}.`);
+        return;
+      }
+      if (!smeltPlan.ok || !smeltPlan.tier) return;
 
-      const smeltId = hasIronOre ? "iron_ore" : "ore";
+      const smeltId = smeltPlan.tier.oreId;
+      const smeltOutId = smeltPlan.tier.barId;
+      const smeltXp = smeltPlan.tier.xp;
       chatLine(`You feed ${Items[smeltId]?.name ?? smeltId} into the furnace...`);
       startTimedAction("smelt", 1600, "Smelting...", () => {
         if (!removeItemsFromInventory(smeltId, 1)) {
           chatLine(`<span class="warn">You need ${Items[smeltId]?.name ?? smeltId}.</span>`);
           return;
         }
-
-        const smeltXp = 20;
-        const got = addToInventory("crude_bar", 1);
+        const got = addToInventory(smeltOutId, 1);
         addXP("smithing", smeltXp);
-        emitQuestEvent({ type: "smelt_item", itemId: "crude_bar", fromItemId: smeltId, qty: 1 });
+        emitQuestEvent({ type: "smelt_item", itemId: smeltOutId, fromItemId: smeltId, qty: 1 });
 
         if (got === 1) {
-          chatLine(`<span class="good">You smelt a ${Items.crude_bar?.name ?? "Crude Bar"}.</span> (+${smeltXp} XP)`);
+          chatLine(`<span class="good">You smelt a ${Items[smeltOutId]?.name ?? smeltOutId}.</span> (+${smeltXp} XP)`);
         } else {
-          addGroundLoot(player.x, player.y, "crude_bar", 1);
-          chatLine(`<span class="warn">Inventory full: ${Items.crude_bar?.name ?? "crude_bar"}</span> (+${smeltXp} XP)`);
+          addGroundLoot(player.x, player.y, smeltOutId, 1);
+          chatLine(`<span class="warn">Inventory full: ${Items[smeltOutId]?.name ?? smeltOutId}</span> (+${smeltXp} XP)`);
         }
       });
       return;
@@ -430,10 +538,9 @@ export function createActionResolver(deps) {
     if (t.kind === "res") {
       const r = resources[t.index];
       if (!r || !r.alive) return stopAction("That resource is gone.");
-      const isRock = (r.type === "rock");
-      const isIronRock = (r.type === "iron_rock");
+      const miningRule = getMiningRule(r.type);
       if (r.type === "tree" && !hasItem("axe")) return stopAction("You need an axe.");
-      if ((isRock || isIronRock) && !hasItem("pick")) return stopAction("You need a pick.");
+      if (miningRule && !hasItem("pick")) return stopAction("You need a pick.");
 
       if (!inRangeOfTile(r.x, r.y, 1.1)) {
         const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]]
@@ -449,8 +556,9 @@ export function createActionResolver(deps) {
       player.facing.y = clamp(r.y - player.y, -1, 1);
 
       if (player.action.type !== "idle") return;
-      if (isIronRock && levelFromXP(Skills.mining.xp) < 10) {
-        return stopAction("You need Mining level 10 to mine iron rocks.");
+      if (miningRule && levelFromXP(Skills.mining?.xp ?? 0) < miningRule.level) {
+        const label = miningRule.label || "that resource";
+        return stopAction(`You need Mining level ${miningRule.level} to mine ${label}.`);
       }
       if (stopIfInventoryFull("Inventory full.")) return;
 
@@ -470,11 +578,11 @@ export function createActionResolver(deps) {
           xpAmount: 35,
           successMessage: `<span class="good">You get a log.</span> (+35 XP)`
         });
-      } else if (isRock || isIronRock) {
-        const mineXp = isIronRock ? 65 : 40;
-        const verb = isIronRock ? "iron rock" : "rock";
-        const oreId = isIronRock ? "iron_ore" : "ore";
-        chatLine(`You chip away at the ${verb}...`);
+      } else if (miningRule) {
+        const mineXp = miningRule.xp;
+        const oreId = miningRule.oreId;
+        const label = miningRule.label || "rock";
+        chatLine(`You chip away at the ${label}...`);
         startGatherAction({
           actionType: "mine",
           durationMs: 1600,
@@ -487,7 +595,7 @@ export function createActionResolver(deps) {
           },
           skillKey: "mining",
           xpAmount: mineXp,
-          successMessage: `<span class="good">You mine ${Items[oreId]?.name ?? oreId} from the ${verb}.</span> (+${mineXp} XP)`
+          successMessage: `<span class="good">You mine ${Items[oreId]?.name ?? oreId} from the ${label}.</span> (+${mineXp} XP)`
         });
       } else {
         return stopAction("You can't gather that.");

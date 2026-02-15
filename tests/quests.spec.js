@@ -76,6 +76,49 @@ test("sealed gate blocks player without key fragment", async ({ page }) => {
   expect(gateResult.enterWingProgress).toBe(0);
 });
 
+test("quartermaster report objective is not advanced by repeated early talk", async ({ page }) => {
+  await bootTestWorld(page);
+
+  const nearQuartermaster = await page.evaluate(() => {
+    return window.__classicRpg.teleport(8, 6, { requireWalkable: true });
+  });
+  expect(nearQuartermaster).toBeTruthy();
+
+  const firstTalk = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(7, 6);
+  });
+  expect(firstTalk.ok).toBeTruthy();
+  expect(firstTalk.kind).toBe("quest_npc");
+
+  await page.evaluate(() => window.__classicRpg.interactTile(7, 6));
+  await page.evaluate(() => window.__classicRpg.interactTile(7, 6));
+  await page.evaluate(() => window.__classicRpg.interactTile(7, 6));
+
+  let firstWatch = await getQuestRow(page, "first_watch");
+  expect(firstWatch?.progress?.report_quartermaster).toBe(1);
+  expect(firstWatch?.completedAt).toBe(0);
+
+  await emitQuestEvent(page, { type: "gather_item", itemId: "log", qty: 3 });
+  await emitQuestEvent(page, { type: "gather_item", itemId: "ore", qty: 3 });
+  await emitQuestEvent(page, { type: "cook_any", qty: 2 });
+  await emitQuestEvent(page, { type: "smelt_item", itemId: "crude_bar", qty: 3 });
+  await emitQuestEvent(page, { type: "kill_mob", mobType: "rat", qty: 2 });
+
+  firstWatch = await getQuestRow(page, "first_watch");
+  expect(firstWatch?.completedAt).toBe(0);
+  expect(firstWatch?.progress?.report_quartermaster).toBe(1);
+
+  const finalReportTalk = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(7, 6);
+  });
+  expect(finalReportTalk.ok).toBeTruthy();
+  expect(finalReportTalk.kind).toBe("quest_npc");
+
+  firstWatch = await getQuestRow(page, "first_watch");
+  expect(firstWatch?.progress?.report_quartermaster).toBe(2);
+  expect(firstWatch?.completedAt).toBeGreaterThan(0);
+});
+
 test("questline progression and persistence regression", async ({ page }) => {
   await bootTestWorld(page);
 
@@ -243,6 +286,101 @@ test("questline progression and persistence regression", async ({ page }) => {
 
   ashes = await getQuestRow(page, "ashes_under_the_keep");
   expect(ashes?.completedAt).toBeGreaterThan(0);
+});
+
+test("braziers do not progress before gate entry and cannot be double-counted", async ({ page }) => {
+  await bootTestWorld(page);
+
+  const nearQuartermaster = await page.evaluate(() => {
+    return window.__classicRpg.teleport(8, 6, { requireWalkable: true });
+  });
+  expect(nearQuartermaster).toBeTruthy();
+
+  await page.evaluate(() => window.__classicRpg.interactTile(7, 6));
+  await emitQuestEvent(page, { type: "gather_item", itemId: "log", qty: 3 });
+  await emitQuestEvent(page, { type: "gather_item", itemId: "ore", qty: 3 });
+  await emitQuestEvent(page, { type: "cook_any", qty: 2 });
+  await emitQuestEvent(page, { type: "smelt_item", itemId: "crude_bar", qty: 3 });
+  await emitQuestEvent(page, { type: "kill_mob", mobType: "rat", qty: 2 });
+  await page.evaluate(() => window.__classicRpg.interactTile(7, 6));
+  await page.evaluate(() => window.__classicRpg.interactTile(7, 6));
+
+  let ashes = await getQuestRow(page, "ashes_under_the_keep");
+  expect(ashes?.progress?.briefing).toBe(1);
+  expect(ashes?.progress?.enter_wing).toBe(0);
+  expect(ashes?.progress?.light_brazier).toBe(0);
+
+  const nearOverworldLadder = await page.evaluate(() => {
+    const l = window.__classicRpg.getLadders().overworldDown;
+    return window.__classicRpg.teleport(l.x + 1, l.y, { requireWalkable: true });
+  });
+  expect(nearOverworldLadder).toBeTruthy();
+
+  const climbDown = await page.evaluate(() => {
+    const l = window.__classicRpg.getLadders().overworldDown;
+    return window.__classicRpg.interactTile(l.x, l.y);
+  });
+  expect(climbDown.ok).toBeTruthy();
+  await page.waitForFunction(() => window.__classicRpg.getState().zone === "dungeon");
+
+  const nearClosedGate = await page.evaluate(() => {
+    return window.__classicRpg.teleport(35, 29, { requireWalkable: true });
+  });
+  expect(nearClosedGate).toBeTruthy();
+
+  const tryWestBrazierBeforeGate = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(44, 26);
+  });
+  expect(tryWestBrazierBeforeGate.ok).toBeTruthy();
+  expect(tryWestBrazierBeforeGate.kind).toBe("brazier");
+
+  await page.evaluate(() => {
+    window.__classicRpg.tickMs(200);
+    window.__classicRpg.tickMs(200);
+    window.__classicRpg.tickMs(200);
+  });
+
+  ashes = await getQuestRow(page, "ashes_under_the_keep");
+  expect(ashes?.progress?.enter_wing).toBe(0);
+  expect(ashes?.progress?.light_brazier).toBe(0);
+
+  const nearSealedGate = await page.evaluate(() => {
+    return window.__classicRpg.teleport(35, 29, { requireWalkable: true });
+  });
+  expect(nearSealedGate).toBeTruthy();
+
+  const useSealedGate = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(36, 29);
+  });
+  expect(useSealedGate.ok).toBeTruthy();
+  expect(useSealedGate.kind).toBe("sealed_gate");
+
+  const nearWestBrazierAfterGate = await page.evaluate(() => {
+    return window.__classicRpg.teleport(43, 26, { requireWalkable: true });
+  });
+  expect(nearWestBrazierAfterGate).toBeTruthy();
+
+  const lightWestBrazier = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(44, 26);
+  });
+  expect(lightWestBrazier.ok).toBeTruthy();
+  expect(lightWestBrazier.kind).toBe("brazier");
+
+  let lightBrazierProgress = await page.evaluate(() => {
+    return window.__classicRpg.getQuests()?.byId?.ashes_under_the_keep?.progress?.light_brazier || 0;
+  });
+  expect(lightBrazierProgress).toBe(1);
+
+  const relightWestBrazier = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(44, 26);
+  });
+  expect(relightWestBrazier.ok).toBeTruthy();
+  expect(relightWestBrazier.kind).toBe("brazier");
+
+  lightBrazierProgress = await page.evaluate(() => {
+    return window.__classicRpg.getQuests()?.byId?.ashes_under_the_keep?.progress?.light_brazier || 0;
+  });
+  expect(lightBrazierProgress).toBe(1);
 });
 
 test("quest rewards are not duplicated after save-load", async ({ page }) => {

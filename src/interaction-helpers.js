@@ -29,7 +29,14 @@ export function createInteractionHelpers(deps) {
     if (ent.kind === "res" && ent.label === "Iron Rock") chatLine(`<span class="muted">A dense iron rock. Requires Mining level 10.</span>`);
     if (ent.kind === "bank") chatLine(`<span class="muted">A secure bank chest.</span>`);
     if (ent.kind === "vendor") chatLine(`<span class="muted">A traveling vendor. Buys and sells goods.</span>`);
-    if (ent.kind === "quest_npc") chatLine(`<span class="muted">A veteran quartermaster keeping records and assignments.</span>`);
+    if (ent.kind === "quest_npc") {
+      const npcId = String(ent.npcId || "");
+      if (npcId === "blacksmith_torren") {
+        chatLine(`<span class="muted">A master blacksmith who can commission forge upgrades.</span>`);
+      } else {
+        chatLine(`<span class="muted">A veteran quartermaster keeping records and assignments.</span>`);
+      }
+    }
     if (ent.kind === "sealed_gate") chatLine(`<span class="muted">A rune-bound gate leading into the old boss wing.</span>`);
     if (ent.kind === "brazier") chatLine(`<span class="muted">An old brazier. It looks tied to the warding ritual in this hall.</span>`);
     if (ent.kind === "fire") chatLine(`<span class="muted">A warm campfire. Great for cooking.</span>`);

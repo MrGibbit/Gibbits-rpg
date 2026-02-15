@@ -5,6 +5,11 @@ export function createContextMenuUI(deps) {
     bankGrid,
     eqWeaponSlot,
     eqOffhandSlot,
+    eqHeadSlot,
+    eqBodySlot,
+    eqLegsSlot,
+    eqHandsSlot,
+    eqFeetSlot,
     eqQuiverSlot,
     inv,
     bank
@@ -120,17 +125,20 @@ export function createContextMenuUI(deps) {
   invGrid.addEventListener("mouseleave", closeItemTooltip);
   bankGrid.addEventListener("mouseleave", closeItemTooltip);
 
-  if (eqWeaponSlot) {
-    eqWeaponSlot.addEventListener("mousemove", showElementTooltip);
-    eqWeaponSlot.addEventListener("mouseleave", closeItemTooltip);
-  }
-  if (eqOffhandSlot) {
-    eqOffhandSlot.addEventListener("mousemove", showElementTooltip);
-    eqOffhandSlot.addEventListener("mouseleave", closeItemTooltip);
-  }
-  if (eqQuiverSlot) {
-    eqQuiverSlot.addEventListener("mousemove", showElementTooltip);
-    eqQuiverSlot.addEventListener("mouseleave", closeItemTooltip);
+  const equipTooltipSlots = [
+    eqWeaponSlot,
+    eqOffhandSlot,
+    eqHeadSlot,
+    eqBodySlot,
+    eqLegsSlot,
+    eqHandsSlot,
+    eqFeetSlot,
+    eqQuiverSlot
+  ];
+  for (const slotEl of equipTooltipSlots) {
+    if (!slotEl) continue;
+    slotEl.addEventListener("mousemove", showElementTooltip);
+    slotEl.addEventListener("mouseleave", closeItemTooltip);
   }
 
   return {

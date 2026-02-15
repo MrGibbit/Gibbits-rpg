@@ -368,7 +368,12 @@ export const lootUi = {
 // ---------- Equipment ----------
 export const equipment = {
   weapon: null,
-  offhand: null
+  offhand: null,
+  head: null,
+  body: null,
+  legs: null,
+  hands: null,
+  feet: null
 };
 
 // ---------- Melee Training selector ----------
@@ -415,6 +420,7 @@ export const availability = {
   bank: false,
   vendor: false,
   smithing: false,
+  blacksmith: false,
   vendorInRangeIndex: -1,
   vendorTab: "buy"
 };
@@ -428,6 +434,7 @@ export const windowsOpen = {
   xpLamp: false,
   bank: false,
   smithing: false,
+  blacksmith: false,
   settings: false,
   vendor: false,
 };

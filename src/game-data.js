@@ -9,6 +9,77 @@ export const CLASS_DEFS = {
   Mage: { color: "#22d3ee" },
 };
 
+// Metal progression is centralized so adding new ore/bar tiers only requires
+// adding rows to METAL_TIERS.
+const METAL_TIER_MIN = 1;
+const METAL_TIER_MAX = 90;
+
+const MINING_XP_CURVE = {
+  base: 40,
+  top: 220,
+  exponent: 1.35
+};
+
+const SMELTING_XP_CURVE = {
+  base: 20,
+  top: 160,
+  exponent: 1.45
+};
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function xpForTier(tier, curve) {
+  const t = clamp(tier | 0, METAL_TIER_MIN, METAL_TIER_MAX);
+  const pct = (t - METAL_TIER_MIN) / (METAL_TIER_MAX - METAL_TIER_MIN);
+  return Math.round(curve.base + (curve.top - curve.base) * Math.pow(pct, curve.exponent));
+}
+
+export const METAL_TIERS = [
+  {
+    key: "crude",
+    tier: 1,
+    level: 1,
+    resourceType: "rock",
+    label: "rock",
+    oreId: "ore",
+    barId: "crude_bar"
+  },
+  {
+    key: "iron",
+    tier: 10,
+    level: 10,
+    resourceType: "iron_rock",
+    label: "iron rock",
+    oreId: "iron_ore",
+    barId: "iron_bar"
+  }
+];
+
+// Used by furnace smelting.
+export const SMELTING_TIERS = METAL_TIERS.map((row) => ({
+  oreId: row.oreId,
+  barId: row.barId,
+  level: row.level,
+  tier: row.tier,
+  xp: xpForTier(row.tier, SMELTING_XP_CURVE)
+}));
+
+// Used by mining resource interactions.
+export const MINING_RESOURCE_RULES = Object.fromEntries(
+  METAL_TIERS.map((row) => [
+    row.resourceType,
+    {
+      oreId: row.oreId,
+      level: row.level,
+      tier: row.tier,
+      xp: xpForTier(row.tier, MINING_XP_CURVE),
+      label: row.label
+    }
+  ])
+);
+
 export const MOB_DEFS = {
   rat: {
     name: "Rat",
@@ -84,9 +155,19 @@ export const DEFAULT_VENDOR_STOCK = [
 // Values are base prices before VENDOR_SELL_MULT is applied.
 export const DEFAULT_VENDOR_SELL_ONLY_PRICES = {
   crude_bar: 6,
+  iron_bar: 12,
   crude_dagger: 12,
   crude_sword: 24,
   crude_shield: 24,
+  crude_helm: 14,
+  crude_legs: 18,
+  crude_body: 26,
+  iron_dagger: 24,
+  iron_sword: 42,
+  iron_shield: 44,
+  iron_helm: 28,
+  iron_legs: 34,
+  iron_body: 52,
   bone_meal: 8
 };
 
