@@ -153,6 +153,7 @@ export function createPersistence(deps) {
 
   function serialize() {
     const t = now();
+    const savedAt = Date.now();
     const activeZone = normalizeZoneKey(typeof getActiveZone === "function" ? getActiveZone() : OVERWORLD_ZONE);
 
     const zones = {};
@@ -171,7 +172,7 @@ export function createPersistence(deps) {
 
     return JSON.stringify({
       v: 3,
-      savedAt: t,
+      savedAt,
       activeZone,
       player: {
         x: player.x,
