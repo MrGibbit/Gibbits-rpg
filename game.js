@@ -6345,10 +6345,11 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
     ctx.font="12px system-ui,-apple-system,Segoe UI,Roboto,Arial";
 
     const lines = [];
+    const LOOT_LINE_PREFIX = "- ";
     if (label) lines.push(label);
     if (lootLines.length){
       lines.push("Loot:");
-      for (const l of lootLines) lines.push("â€¢ " + l);
+      for (const l of lootLines) lines.push(LOOT_LINE_PREFIX + l);
     }
 
     const maxW = Math.max(...lines.map(s => ctx.measureText(s).width));
@@ -6366,7 +6367,7 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
       if (text==="Loot:"){
         ctx.fillStyle="rgba(251,191,36,.95)";
         ctx.fillText(text, px+7, y);
-      } else if (text.startsWith("â€¢ ")){
+      } else if (text.startsWith(LOOT_LINE_PREFIX)){
         ctx.fillStyle="rgba(230,238,247,.92)";
         ctx.fillText(text, px+7, y);
       } else {
