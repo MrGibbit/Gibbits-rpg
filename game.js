@@ -3976,13 +3976,45 @@ return;
         migrateDungeonLegacyMobLayout();
       }
 
-      for (const spot of DUNGEON_SOUTH_SKELETON_SPAWNS) {
-        const exists = mobs.some((m) =>
-          String(m.type || "") === "skeleton" &&
-          ((Number.isFinite(m.homeX) ? (m.homeX | 0) : (m.x | 0)) === (spot.x | 0)) &&
-          ((Number.isFinite(m.homeY) ? (m.homeY | 0) : (m.y | 0)) === (spot.y | 0))
+      function ensureMobSpawnSlot(type, x, y) {
+        const existing = mobs.find((m) =>
+          String(m.type || "") === String(type) &&
+          ((Number.isFinite(m.homeX) ? (m.homeX | 0) : (m.x | 0)) === (x | 0)) &&
+          ((Number.isFinite(m.homeY) ? (m.homeY | 0) : (m.y | 0)) === (y | 0))
         );
-        if (!exists) placeMob("skeleton", spot.x, spot.y);
+
+        if (!existing) {
+          placeMob(type, x, y);
+          return;
+        }
+
+        // Recovery for stale saves: dead mob with no respawn timer should not block a spawn slot forever.
+        if (!existing.alive && (existing.respawnAt | 0) <= 0) {
+          const def = MOB_DEFS[type] ?? { hp: 12 };
+          existing.homeX = x | 0;
+          existing.homeY = y | 0;
+          existing.x = existing.homeX;
+          existing.y = existing.homeY;
+          existing.maxHp = Math.max(1, (existing.maxHp | 0) || (def.hp | 0) || 12);
+          existing.hp = existing.maxHp;
+          existing.alive = true;
+          existing.respawnAt = 0;
+          existing.target = null;
+          existing.provokedUntil = 0;
+          existing.aggroUntil = 0;
+          existing.attackCooldownUntil = 0;
+          existing.moveCooldownUntil = 0;
+          const c = tileCenter(existing.x, existing.y);
+          existing.px = c.cx;
+          existing.py = c.cy;
+        }
+      }
+
+      for (const spot of DUNGEON_DEFAULT_MOB_SPAWNS) {
+        ensureMobSpawnSlot(spot.type, spot.x, spot.y);
+      }
+      for (const spot of DUNGEON_SOUTH_SKELETON_SPAWNS) {
+        ensureMobSpawnSlot("skeleton", spot.x, spot.y);
       }
     });
   }
