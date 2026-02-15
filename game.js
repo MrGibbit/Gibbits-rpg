@@ -15,7 +15,7 @@ import {
   gatherParticles, combatFX, mouse, player
 } from "./src/state.js";
 import {
-  COOK_RECIPES, CLASS_DEFS, MOB_DEFS, DEFAULT_VENDOR_STOCK, DEFAULT_MOB_LEVELS, VENDOR_SELL_MULT
+  COOK_RECIPES, CLASS_DEFS, MOB_DEFS, DEFAULT_VENDOR_STOCK, DEFAULT_VENDOR_SELL_ONLY_PRICES, DEFAULT_MOB_LEVELS, VENDOR_SELL_MULT
 } from "./src/game-data.js";
 import {
   createDecorLookup, stampVendorShopLayout, VENDOR_TILE, DECOR_EXAMINE_TEXT
@@ -2344,7 +2344,7 @@ const BGM_KEY = "classic_bgm_v1";
     return row ? (row.price|0) : null;
   }
   function vendorSellPrice(id){
-    const p = vendorBuyPrice(id);
+    const p = vendorBuyPrice(id) ?? (DEFAULT_VENDOR_SELL_ONLY_PRICES[id] ?? null);
     if (p == null) return null;
     return Math.max(1, Math.floor(p * VENDOR_SELL_MULT));
   }

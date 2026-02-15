@@ -68,6 +68,15 @@ export const DEFAULT_VENDOR_STOCK = [
   { id: "bow", price: 75, bulk: [1] }
 ];
 
+// These items can be sold to the vendor but are not shown in the buy stock.
+// Values are base prices before VENDOR_SELL_MULT is applied.
+export const DEFAULT_VENDOR_SELL_ONLY_PRICES = {
+  crude_bar: 6,
+  crude_dagger: 12,
+  crude_sword: 24,
+  crude_shield: 24
+};
+
 export const DEFAULT_MOB_LEVELS = {
   accuracy: 1,
   power: 1,
