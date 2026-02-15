@@ -1,4 +1,4 @@
-import { clamp, dist, now } from "./src/utils.js";
+﻿import { clamp, dist, now } from "./src/utils.js";
 import {
   TILE, W, H, WORLD_W, WORLD_H, ZOOM_DEFAULT, ZOOM_MIN, ZOOM_MAX, RIVER_Y
 } from "./src/config.js";
@@ -969,7 +969,7 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
     }
 
     if (!mouse.seen){
-      if (coordMouseEl && coordMouseEl.textContent !== "—") coordMouseEl.textContent = "—";
+      if (coordMouseEl && coordMouseEl.textContent !== "â€”") coordMouseEl.textContent = "â€”";
       return;
     }
 
@@ -978,7 +978,7 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
     const tx = Math.floor(worldX / TILE);
     const ty = Math.floor(worldY / TILE);
 
-    const m = inBounds(tx,ty) ? `${tx}, ${ty}` : "—";
+    const m = inBounds(tx,ty) ? `${tx}, ${ty}` : "â€”";
     if (coordMouseEl && coordMouseEl.textContent !== m) coordMouseEl.textContent = m;
   }
 
@@ -1041,7 +1041,7 @@ rat: {
   leash: 7.0,
   attackRange: 1.15,
   attackSpeedMs: 1600, // slower attacks
-  maxHit: 1            // rats shouldn’t chunk you
+  maxHit: 1            // rats shouldnâ€™t chunk you
 },
 goblin: {
   name: "Goblin",
@@ -1285,7 +1285,7 @@ const DEFAULT_MOB_LEVELS = {
       const y = Math.round(cy + Math.sin(ang) * rr);
 
       if (!tileOkForResource(x,y)) continue;
-      // allow some adjacency, but avoid “solid blobs”
+      // allow some adjacency, but avoid â€œsolid blobsâ€
       if (tooCloseToSameType("tree", x,y, 1.35)) continue;
 
       placeRes("tree", x,y);
@@ -1397,7 +1397,7 @@ const DEFAULT_MOB_LEVELS = {
     // Must be reachable from the player start region
     if (!reachable.has(keyXY(x,y))) return false;
 
-    // Don’t sit on resources
+    // Donâ€™t sit on resources
     if (resources.some(r => r.alive && r.x===x && r.y===y)) return false;
 
     // Avoid interactable tiles (known)
@@ -1608,6 +1608,185 @@ placeInteractable("anvil", sx + 2, sy);
   const WINDOWS_UI_KEY = "classic_windows_ui_v2_multi_open";
 const BGM_KEY = "classic_bgm_v1";
 
+  const hudChatEl = document.getElementById("hudChat");
+  const hudChatTabEl = document.getElementById("hudChatTab");
+  const hudChatHeaderEl = document.getElementById("hudChatHeader");
+  const hudChatMinEl = document.getElementById("hudChatMin");
+  const hudChatResizeEl = document.getElementById("hudChatResize");
+  const chatInputEl = document.getElementById("chatInput");
+  const chatSendEl = document.getElementById("chatSend");
+
+  function saveChatUI(){
+    try {
+      localStorage.setItem(CHAT_UI_KEY, JSON.stringify({
+        left: chatUI.left|0,
+        top: Number.isFinite(chatUI.top) ? (chatUI.top|0) : null,
+        width: chatUI.width|0,
+        height: chatUI.height|0,
+        collapsed: !!chatUI.collapsed
+      }));
+    } catch {}
+  }
+
+  function loadChatUI(){
+    try {
+      const raw = localStorage.getItem(CHAT_UI_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      chatUI.left = Number.isFinite(d?.left) ? (d.left|0) : chatUI.left;
+      chatUI.top = Number.isFinite(d?.top) ? (d.top|0) : null;
+      chatUI.width = Number.isFinite(d?.width) ? (d.width|0) : chatUI.width;
+      chatUI.height = Number.isFinite(d?.height) ? (d.height|0) : chatUI.height;
+      chatUI.collapsed = !!d?.collapsed;
+    } catch {}
+  }
+
+  function applyChatUI(){
+    if (!hudChatEl) return;
+    chatUI.left = clamp(chatUI.left|0, 6, Math.max(6, window.innerWidth - 110));
+    chatUI.width = clamp(chatUI.width|0, 300, Math.max(300, window.innerWidth - 20));
+    chatUI.height = clamp(chatUI.height|0, 190, Math.max(190, window.innerHeight - 20));
+
+    hudChatEl.classList.toggle("collapsed", !!chatUI.collapsed);
+    hudChatEl.style.left = `${chatUI.left}px`;
+    if (Number.isFinite(chatUI.top)){
+      chatUI.top = clamp(chatUI.top|0, 6, Math.max(6, window.innerHeight - 60));
+      hudChatEl.style.top = `${chatUI.top}px`;
+      hudChatEl.style.bottom = "auto";
+    } else {
+      hudChatEl.style.top = "auto";
+      hudChatEl.style.bottom = "12px";
+    }
+    hudChatEl.style.width = `${chatUI.width}px`;
+    hudChatEl.style.height = `${chatUI.height}px`;
+  }
+
+  function saveWindowsUI(){
+    try {
+      localStorage.setItem(WINDOWS_UI_KEY, JSON.stringify({
+        open: { ...windowsOpen },
+        layout: getWindowLayoutSnapshot()
+      }));
+    } catch {}
+  }
+
+  function loadWindowsUI(){
+    try {
+      const raw = localStorage.getItem(WINDOWS_UI_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (!d?.open) return;
+      for (const k of Object.keys(windowsOpen)){
+        windowsOpen[k] = !!d.open[k];
+      }
+      applyWindowLayout(d.layout);
+    } catch {}
+  }
+
+  function renderMeleeTrainingUI(){
+    const seg = document.getElementById("meleeTrainingSeg");
+    if (!seg) return;
+    const selected = meleeState.selected;
+    for (const btn of seg.querySelectorAll("button[data-melee]")){
+      const key = btn.dataset.melee;
+      btn.classList.toggle("active", key === selected);
+      if (btn.dataset.bound === "1") continue;
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", ()=>{
+        if (!key) return;
+        meleeState.selected = key;
+        saveMeleeTraining();
+        renderMeleeTrainingUI();
+      });
+    }
+  }
+
+  (function initChatUIControls(){
+    if (!hudChatEl) return;
+
+    let drag = null;
+    let resize = null;
+
+    if (hudChatHeaderEl){
+      hudChatHeaderEl.addEventListener("mousedown", (e)=>{
+        if (e.button !== 0 || chatUI.collapsed) return;
+        const rect = hudChatEl.getBoundingClientRect();
+        drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+        chatUI.top = rect.top|0;
+      });
+    }
+
+    if (hudChatResizeEl){
+      hudChatResizeEl.addEventListener("mousedown", (e)=>{
+        if (e.button !== 0 || chatUI.collapsed) return;
+        e.preventDefault();
+        resize = {
+          sx: e.clientX,
+          sy: e.clientY,
+          sw: chatUI.width|0,
+          sh: chatUI.height|0
+        };
+      });
+    }
+
+    if (hudChatMinEl){
+      hudChatMinEl.addEventListener("click", ()=>{
+        chatUI.collapsed = true;
+        applyChatUI();
+        saveChatUI();
+      });
+    }
+
+    if (hudChatTabEl){
+      hudChatTabEl.addEventListener("click", ()=>{
+        chatUI.collapsed = false;
+        applyChatUI();
+        saveChatUI();
+      });
+    }
+
+    const sendChatText = ()=>{
+      if (!chatInputEl) return;
+      const msg = String(chatInputEl.value || "").trim();
+      if (!msg) return;
+      chatLine(`<span class="muted">You:</span> ${msg}`);
+      chatInputEl.value = "";
+    };
+
+    if (chatSendEl) chatSendEl.addEventListener("click", sendChatText);
+    if (chatInputEl){
+      chatInputEl.addEventListener("keydown", (e)=>{
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        sendChatText();
+      });
+    }
+
+    window.addEventListener("mousemove", (e)=>{
+      if (drag){
+        chatUI.left = (e.clientX - drag.dx)|0;
+        chatUI.top = (e.clientY - drag.dy)|0;
+        applyChatUI();
+      }
+      if (resize){
+        chatUI.width = (resize.sw + (e.clientX - resize.sx))|0;
+        chatUI.height = (resize.sh + (e.clientY - resize.sy))|0;
+        applyChatUI();
+      }
+    });
+
+    window.addEventListener("mouseup", ()=>{
+      if (drag || resize) saveChatUI();
+      drag = null;
+      resize = null;
+    });
+
+    window.addEventListener("resize", ()=>{
+      applyChatUI();
+      saveChatUI();
+    });
+  })();
+
 
   const CLASS_DEFS = {
     Warrior: { color: "#ef4444" },
@@ -1702,7 +1881,7 @@ const BGM_KEY = "classic_bgm_v1";
   const winEquipment = document.getElementById("winEquipment");
   const winSkills    = document.getElementById("winSkills");
   const winBank      = document.getElementById("winBank");
-const winVendor  = document.getElementById("winVendor");
+  const winVendor    = document.getElementById("winVendor");
 
   const winSettings  = document.getElementById("winSettings");
 
@@ -1710,402 +1889,217 @@ const winVendor  = document.getElementById("winVendor");
   const iconEqp  = document.getElementById("iconEqp");
   const iconSki  = document.getElementById("iconSki");
   const iconBank = document.getElementById("iconBank");
-const iconVendor = document.getElementById("iconVendor");
+  const iconVendor = document.getElementById("iconVendor");
 
   const iconSet  = document.getElementById("iconSet");
-// ---------- Vendor UI ----------
-const vendorGoldPill = document.getElementById("vendorGoldPill");
-const vendorListEl = document.getElementById("vendorList");
-const vendorTabBuyBtn = document.getElementById("vendorTabBuyBtn");
-const vendorTabSellBtn = document.getElementById("vendorTabSellBtn");
 
-function vendorBuyPrice(id){
-  const row = DEFAULT_VENDOR_STOCK.find(x => x.id === id);
-  return row ? (row.price|0) : null;
-}
-function vendorSellPrice(id){
-  const p = vendorBuyPrice(id);
-  if (p == null) return null;
-  return Math.max(1, Math.floor(p * VENDOR_SELL_MULT));
-}
+  const managedWindows = [
+    ["inventory", winInventory],
+    ["equipment", winEquipment],
+    ["skills", winSkills],
+    ["bank", winBank],
+    ["vendor", winVendor],
+    ["settings", winSettings]
+  ].filter(([, el]) => !!el);
 
-function renderVendorUI(){
-  if (!vendorListEl) return;
+  let windowDrag = null;
+  let windowResize = null;
+  let windowZ = 70;
 
-  if (vendorGoldPill) vendorGoldPill.textContent = `Gold: ${getGold()}`;
-
-  // tab button styles
-  if (vendorTabBuyBtn) vendorTabBuyBtn.classList.toggle("active", availability.vendorTab === "buy");
-  if (vendorTabSellBtn) vendorTabSellBtn.classList.toggle("active", availability.vendorTab === "sell");
-
-  vendorListEl.innerHTML = "";
-
-  if (availability.vendorTab === "buy"){
-    for (const row of DEFAULT_VENDOR_STOCK){
-      const it = Items[row.id];
-      if (!it) continue;
-
-      const line = document.createElement("div");
-      line.className = "shopRow";
-      line.innerHTML = `
-        <div class="shopLeft">
-          <div class="shopIcon">${it.icon ?? UNKNOWN_ICON}</div>
-          <div class="shopMeta">
-            <div class="shopName">${it.name ?? row.id}</div>
-            <div class="shopSub">Price: ${row.price} gold</div>
-          </div>
-        </div>
-        <div class="shopActions"></div>
-      `;
-
-      const actions = line.querySelector(".shopActions");
-      const bulks = Array.isArray(row.bulk) && row.bulk.length ? row.bulk : [1];
-
-      for (const qty of bulks){
-        const btn = document.createElement("button");
-        btn.className = "shopBtn";
-        btn.textContent = `Buy x${qty}`;
-        btn.onclick = () => {
-          const cost = (row.price|0) * (qty|0);
-          if (!spendGold(cost)){
-            chatLine(`<span class="warn">Not enough gold.</span>`);
-            return;
-          }
-
-          // ammo routes to quiver; others go to inventory
-          const added = addToInventory(row.id, qty);
-          if (added <= 0){
-            // refund if nothing could be added
-            addGold(cost);
-            chatLine(`<span class="warn">Inventory full.</span>`);
-            return;
-          }
-
-          chatLine(`<span class="good">Bought ${qty}x ${it.name}.</span>`);
-          renderVendorUI();
-          renderInv();
-          renderQuiver();
-        };
-        actions.appendChild(btn);
-      }
-
-      vendorListEl.appendChild(line);
-    }
-    return;
+  function windowNumPx(value, fallback){
+    const n = parseFloat(value);
+    return Number.isFinite(n) ? n : fallback;
   }
 
-  // SELL tab: show unique sellable items currently in inventory.
-  const seen = new Map(); // id -> count
-  for (const s of inv){
-    if (!s) continue;
-    const id = s.id;
-    const item = Items[id];
-    if (!item) continue;
-    const qty = item.stack ? Math.max(1, s.qty|0) : 1;
-    seen.set(id, (seen.get(id)|0) + qty);
-  }
-
-  for (const [id, count] of seen.entries()){
-    const it = Items[id];
-    const price = vendorSellPrice(id);
-    if (price == null) continue; // vendor doesn't buy it
-
-    const line = document.createElement("div");
-    line.className = "shopRow";
-    line.innerHTML = `
-      <div class="shopLeft">
-        <div class="shopIcon">${it.icon ?? UNKNOWN_ICON}</div>
-        <div class="shopMeta">
-          <div class="shopName">${it.name ?? id} ${count>1 ? `x${count}` : ""}</div>
-          <div class="shopSub">Sell: ${price} gold</div>
-        </div>
-      </div>
-      <div class="shopActions"></div>
-    `;
-
-    const actions = line.querySelector(".shopActions");
-
-    const btn1 = document.createElement("button");
-    btn1.className = "shopBtn";
-    btn1.textContent = "Sell x1";
-    btn1.onclick = () => {
-      if (!removeItemsFromInventory(id, 1)){
-        chatLine(`<span class="warn">You don't have that.</span>`);
-        return;
-      }
-      addGold(price);
-      chatLine(`<span class="good">Sold 1x ${it.name}.</span>`);
-      renderVendorUI();
-      renderInv();
-      renderQuiver();
-    };
-    actions.appendChild(btn1);
-
-    if (count > 1){
-      const btnAll = document.createElement("button");
-      btnAll.className = "shopBtn";
-      btnAll.textContent = "Sell all";
-      btnAll.onclick = () => {
-        let sold = 0;
-        for (let i=0; i<count; i++){
-          if (!removeItemsFromInventory(id, 1)) break;
-          sold++;
-        }
-        if (sold){
-          addGold(price * sold);
-          chatLine(`<span class="good">Sold ${sold}x ${it.name}.</span>`);
-        }
-        renderVendorUI();
-        renderInv();
-        renderQuiver();
-      };
-      actions.appendChild(btnAll);
-    }
-
-    vendorListEl.appendChild(line);
-  }
-
-  if (!vendorListEl.childElementCount){
-    vendorListEl.innerHTML = `<div class="hint">You have nothing the vendor will buy.</div>`;
-  }
-}
-
-if (vendorTabBuyBtn) vendorTabBuyBtn.addEventListener("click", ()=>{ availability.vendorTab = "buy"; renderVendorUI(); });
-if (vendorTabSellBtn) vendorTabSellBtn.addEventListener("click", ()=>{ availability.vendorTab = "sell"; renderVendorUI(); });
-
-  // Open state: inventory + equipment can be open simultaneously.
-
-  function applyWindowVis(){
-    winInventory.classList.toggle("hidden", !windowsOpen.inventory);
-    winEquipment.classList.toggle("hidden", !windowsOpen.equipment);
-    winSkills.classList.toggle("hidden", !windowsOpen.skills);
-    winBank.classList.toggle("hidden", !windowsOpen.bank);
-    winVendor.classList.toggle("hidden", !windowsOpen.vendor);
-
-    winSettings.classList.toggle("hidden", !windowsOpen.settings);
-
-    iconInv.classList.toggle("active", windowsOpen.inventory);
-    iconEqp.classList.toggle("active", windowsOpen.equipment);
-    iconSki.classList.toggle("active", windowsOpen.skills);
-    iconSet.classList.toggle("active", windowsOpen.settings);
-    iconBank.classList.toggle("active", windowsOpen.bank);
-if (iconVendor) iconVendor.classList.toggle("active", windowsOpen.vendor);
-if (winVendor) winVendor.classList.toggle("hidden", !windowsOpen.vendor);
-
-
-  }
-
-  function closeExclusive(exceptName){
-    // Skills / Bank / Settings are exclusive *between themselves*, but do not close inventory/equipment.
-    for (const k of ["skills","bank","vendor","settings"]){
-      if (k !== exceptName) windowsOpen[k] = false;
-    }
-  }
-
-  function openWindow(name){
-    if (name === "inventory" || name === "equipment"){
-      windowsOpen[name] = true;
-    } else {
-      closeExclusive(name);
-      windowsOpen[name] = true;
-    }
-
-    // Bank access should auto-open inventory
-    if (name === "bank"){
-      windowsOpen.inventory = true;
-    }
-
-    applyWindowVis();
-    saveWindowsUI();
-  }
-
-  function closeWindow(name){
-    windowsOpen[name] = false;
-    applyWindowVis();
-    saveWindowsUI();
-  }
-
-  function toggleWindow(name){
-    if (name === "bank" && !availability.bank) return;
-  if (name === "vendor" && !availability.vendor) {
-    chatLine(`<span class="muted">You need to be next to a vendor to trade.</span>`);
-    return;
-  }
-
-
-
-    const isOpen = !!windowsOpen[name];
-    if (isOpen){
-      closeWindow(name);
-      return;
-    }
-    openWindow(name);
-  }
-
-  iconInv.addEventListener("click", () => toggleWindow("inventory"));
-  iconEqp.addEventListener("click", () => toggleWindow("equipment"));
-  iconSki.addEventListener("click", () => toggleWindow("skills"));
-  iconSet.addEventListener("click", () => toggleWindow("settings"));
-  iconBank.addEventListener("click", () => toggleWindow("bank"));
-iconVendor.addEventListener("click", () => toggleWindow("vendor"));
-
-
-  function updateBankIcon(){
-    if (availability.bank){
-      iconBank.classList.remove("disabled");
-      iconBank.style.display = "";
-    } else {
-      iconBank.classList.add("disabled");
-      iconBank.style.display = "none";
-      if (windowsOpen.bank){
-        windowsOpen.bank = false; // close bank window if you walk away
-        applyWindowVis();
-        saveWindowsUI();
-      }
-    }
-  }
-function updateVendorIcon(){
-  if (availability.vendor){
-    iconVendor.classList.remove("disabled");
-    iconVendor.style.display = "";
-  } else {
-    iconVendor.classList.add("disabled");
-    iconVendor.style.display = "none";
-    if (windowsOpen.vendor){
-      windowsOpen.vendor = false;
-      applyWindowVis();
-      saveWindowsUI();
-    }
-  }
-}
-
-  // Close buttons
-  document.body.addEventListener("click", (e) => {
-    const btn = e.target.closest("button.winClose");
-    if (!btn) return;
-    const name = btn.dataset.close;
-    if (!name) return;
-    closeWindow(name);
-  });
-
-  // Draggable windows
-  function makeWindowDraggable(winEl, headerEl){
-    let drag = null;
-
-    headerEl.addEventListener("mousedown", (e) => {
-      if (e.target.closest(".winClose")) return;
-      e.preventDefault();
-      const r = winEl.getBoundingClientRect();
-      drag = { sx: e.clientX, sy: e.clientY, left: r.left, top: r.top };
-    });
-
-    window.addEventListener("mousemove", (e) => {
-      if (!drag) return;
-      const dx = e.clientX - drag.sx;
-      const dy = e.clientY - drag.sy;
-      const gameArea = document.getElementById("gameArea").getBoundingClientRect();
-      const w = winEl.offsetWidth;
-      const h = winEl.offsetHeight;
-
-      let nl = drag.left + dx - gameArea.left;
-      let nt = drag.top + dy - gameArea.top;
-
-      nl = clamp(nl, 8, Math.max(8, gameArea.width - w - 8));
-      nt = clamp(nt, 8, Math.max(8, gameArea.height - h - 8));
-
-      winEl.style.left = nl + "px";
-      winEl.style.top = nt + "px";
-    });
-
-    window.addEventListener("mouseup", () => {
-      if (!drag) return;
-      drag = null;
-      saveWindowsUI();
-    });
-  }
-
-  makeWindowDraggable(winInventory, document.getElementById("hdrInventory"));
-  makeWindowDraggable(winEquipment, document.getElementById("hdrEquipment"));
-  makeWindowDraggable(winSkills, document.getElementById("hdrSkills"));
-  makeWindowDraggable(winBank, document.getElementById("hdrBank"));
-  makeWindowDraggable(winSettings, document.getElementById("hdrSettings"));
-makeWindowDraggable(winVendor, document.getElementById("hdrVendor"));
-
-
-  function getWindowRect(winEl){
+  function getWindowBounds(el){
+    const cs = getComputedStyle(el);
+    const cssMinW = windowNumPx(cs.minWidth, 220);
+    const cssMinH = windowNumPx(cs.minHeight, 180);
+    const maxW = Math.max(220, window.innerWidth - 16);
+    const maxH = Math.max(180, window.innerHeight - 16);
     return {
-      left: parseFloat(winEl.style.left || "18"),
-      top:  parseFloat(winEl.style.top  || "70"),
-      width: winEl.offsetWidth,
-      height: winEl.offsetHeight
+      minW: Math.min(Math.max(220, cssMinW), maxW),
+      minH: Math.min(Math.max(180, cssMinH), maxH),
+      maxW,
+      maxH
     };
   }
 
-  function applyWindowRect(winEl, rect){
-    if (!rect) return;
-    if (typeof rect.left === "number") winEl.style.left = rect.left + "px";
-    if (typeof rect.top === "number") winEl.style.top = rect.top + "px";
-    if (typeof rect.width === "number") winEl.style.width = rect.width + "px";
-    if (typeof rect.height === "number") winEl.style.height = rect.height + "px";
-  }
-function clampWindowToGameArea(winEl){
-  if (!winEl) return;
-  const gameArea = document.getElementById("gameArea").getBoundingClientRect();
-  const w = winEl.offsetWidth || parseFloat(winEl.style.width) || 0;
-  const h = winEl.offsetHeight || parseFloat(winEl.style.height) || 0;
+  function clampWindowRect(el){
+    if (!el) return;
 
+    const rect = el.getBoundingClientRect();
+    const { minW, minH, maxW, maxH } = getWindowBounds(el);
 
-  let nl = parseFloat(winEl.style.left || "18");
-  let nt = parseFloat(winEl.style.top  || "70");
+    let width = windowNumPx(el.style.width, rect.width || 360);
+    let height = windowNumPx(el.style.height, rect.height || 320);
+    width = clamp(width, minW, maxW);
+    height = clamp(height, minH, maxH);
 
-  nl = clamp(nl, 8, Math.max(8, gameArea.width  - w - 8));
-  nt = clamp(nt, 8, Math.max(8, gameArea.height - h - 8));
+    let left = windowNumPx(el.style.left, rect.left || 0);
+    let top = windowNumPx(el.style.top, rect.top || 0);
 
-  winEl.style.left = nl + "px";
-  winEl.style.top  = nt + "px";
-}
+    left = clamp(left, 0, Math.max(0, window.innerWidth - width));
+    top = clamp(top, 0, Math.max(0, window.innerHeight - 42));
 
-
-  function saveWindowsUI(){
-    const data = {
-      windowsOpen: { ...windowsOpen },
-      inventory: getWindowRect(winInventory),
-      equipment: getWindowRect(winEquipment),
-      skills: getWindowRect(winSkills),
-      bank: getWindowRect(winBank),
-      settings: getWindowRect(winSettings),
-vendor: getWindowRect(winVendor)
-
-    };
-    localStorage.setItem(WINDOWS_UI_KEY, JSON.stringify(data));
+    el.style.width = `${width|0}px`;
+    el.style.height = `${height|0}px`;
+    el.style.left = `${left|0}px`;
+    el.style.top = `${top|0}px`;
   }
 
-  function loadWindowsUI(){
-  try{
-    const d = JSON.parse(localStorage.getItem("ui_windows") || "{}");
+  function clampAllWindows(){
+    for (const [, el] of managedWindows){
+      clampWindowRect(el);
+    }
+  }
 
-    applyWindowRect(winInventory, d.inventory);
-    applyWindowRect(winEquipment, d.equipment);
-    applyWindowRect(winSkills, d.skills);
-    applyWindowRect(winBank, d.bank);
-    applyWindowRect(winSettings, d.settings);
+  function getWindowLayoutSnapshot(){
+    const out = {};
+    for (const [name, el] of managedWindows){
+      const rect = el.getBoundingClientRect();
+      out[name] = {
+        left: windowNumPx(el.style.left, rect.left || 0) | 0,
+        top: windowNumPx(el.style.top, rect.top || 0) | 0,
+        width: windowNumPx(el.style.width, rect.width || 360) | 0,
+        height: windowNumPx(el.style.height, rect.height || 320) | 0,
+        z: windowNumPx(el.style.zIndex, 70) | 0
+      };
+    }
+    return out;
+  }
 
-    // ADD THIS:
-    applyWindowRect(winVendor, d.vendor);
+  function applyWindowLayout(layout){
+    if (!layout || typeof layout !== "object") return;
 
-    // ADD THIS:
-    clampWindowToGameArea(winInventory);
-    clampWindowToGameArea(winEquipment);
-    clampWindowToGameArea(winSkills);
-    clampWindowToGameArea(winBank);
-    clampWindowToGameArea(winVendor);
-    clampWindowToGameArea(winSettings);
+    for (const [name, el] of managedWindows){
+      const w = layout[name];
+      if (!w || typeof w !== "object") continue;
 
-  }catch(e){}
-}
+      if (Number.isFinite(w.left)) el.style.left = `${w.left|0}px`;
+      if (Number.isFinite(w.top)) el.style.top = `${w.top|0}px`;
+      if (Number.isFinite(w.width)) el.style.width = `${w.width|0}px`;
+      if (Number.isFinite(w.height)) el.style.height = `${w.height|0}px`;
+      if (Number.isFinite(w.z)) el.style.zIndex = String(w.z|0);
+    }
 
+    clampAllWindows();
 
-  window.addEventListener("mouseup", () => saveWindowsUI());
+    let maxZ = 70;
+    for (const [, el] of managedWindows){
+      maxZ = Math.max(maxZ, windowNumPx(el.style.zIndex, 70) | 0);
+    }
+    windowZ = maxZ;
+  }
+
+  function bringWindowToFront(el){
+    if (!el) return;
+    windowZ = Math.max(windowZ + 1, 71);
+    el.style.zIndex = String(windowZ);
+  }
+
+  (function initWindowControls(){
+    const closeBtns = document.querySelectorAll(".winClose[data-close]");
+    for (const btn of closeBtns){
+      if (btn.dataset.boundClose === "1") continue;
+      btn.dataset.boundClose = "1";
+      btn.addEventListener("click", ()=>{
+        const name = btn.dataset.close;
+        if (!name) return;
+        closeWindow(name);
+      });
+    }
+
+    for (const [, el] of managedWindows){
+      const z = windowNumPx(el.style.zIndex, 70) | 0;
+      windowZ = Math.max(windowZ, z);
+
+      el.addEventListener("mousedown", ()=>{
+        bringWindowToFront(el);
+      });
+
+      const header = el.querySelector(".winHeader");
+      if (header && header.dataset.boundDrag !== "1"){
+        header.dataset.boundDrag = "1";
+        header.addEventListener("mousedown", (e)=>{
+          if (e.button !== 0) return;
+          if (e.target.closest("button,input,textarea,select,a")) return;
+          e.preventDefault();
+          const rect = el.getBoundingClientRect();
+          bringWindowToFront(el);
+          windowDrag = {
+            el,
+            dx: e.clientX - rect.left,
+            dy: e.clientY - rect.top
+          };
+        });
+      }
+
+      let resizeHandle = el.querySelector(".winResize");
+      if (!resizeHandle){
+        resizeHandle = document.createElement("div");
+        resizeHandle.className = "winResize";
+        resizeHandle.title = "Resize window";
+        el.appendChild(resizeHandle);
+      }
+      if (resizeHandle.dataset.boundResize !== "1"){
+        resizeHandle.dataset.boundResize = "1";
+        resizeHandle.addEventListener("mousedown", (e)=>{
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const rect = el.getBoundingClientRect();
+          bringWindowToFront(el);
+          windowResize = {
+            el,
+            sx: e.clientX,
+            sy: e.clientY,
+            sw: rect.width,
+            sh: rect.height
+          };
+        });
+      }
+    }
+
+    window.addEventListener("mousemove", (e)=>{
+      if (windowDrag){
+        const el = windowDrag.el;
+        const rect = el.getBoundingClientRect();
+        let left = e.clientX - windowDrag.dx;
+        let top = e.clientY - windowDrag.dy;
+        left = clamp(left, 0, Math.max(0, window.innerWidth - rect.width));
+        top = clamp(top, 0, Math.max(0, window.innerHeight - 42));
+        el.style.left = `${left|0}px`;
+        el.style.top = `${top|0}px`;
+      }
+
+      if (windowResize){
+        const el = windowResize.el;
+        const left = windowNumPx(el.style.left, el.getBoundingClientRect().left || 0);
+        const top = windowNumPx(el.style.top, el.getBoundingClientRect().top || 0);
+        const { minW, minH } = getWindowBounds(el);
+        const maxW = Math.max(minW, window.innerWidth - left - 8);
+        const maxH = Math.max(minH, window.innerHeight - top - 8);
+        const width = clamp(windowResize.sw + (e.clientX - windowResize.sx), minW, maxW);
+        const height = clamp(windowResize.sh + (e.clientY - windowResize.sy), minH, maxH);
+        el.style.width = `${width|0}px`;
+        el.style.height = `${height|0}px`;
+      }
+    });
+
+    window.addEventListener("mouseup", ()=>{
+      if (windowDrag || windowResize) saveWindowsUI();
+      windowDrag = null;
+      windowResize = null;
+    });
+
+    window.addEventListener("resize", ()=>{
+      clampAllWindows();
+      saveWindowsUI();
+    });
+
+    clampAllWindows();
+  })();
 
   // ---------- Rendering UI: inventory/skills/equipment/bank ----------
   const invGrid = document.getElementById("invGrid");
@@ -2113,8 +2107,7 @@ vendor: getWindowRect(winVendor)
   const invUseStateEl = document.getElementById("invUseState");
 
   const skillsGrid = document.getElementById("skillsGrid");
-const skillsCombatPillEl = document.getElementById("skillsCombatPill");
-
+  const skillsCombatPillEl = document.getElementById("skillsCombatPill");
 
   const eqWeaponIcon = document.getElementById("eqWeaponIcon");
   const eqWeaponName = document.getElementById("eqWeaponName");
@@ -2128,18 +2121,18 @@ const skillsCombatPillEl = document.getElementById("skillsCombatPill");
   const bankCountEl = document.getElementById("bankCount");
 
   function renderInv(){
-    invGrid.innerHTML="";
+    invGrid.innerHTML = "";
     invCountEl.textContent = `${countSlots(inv)}/${MAX_INV}`;
-    for (let i=0;i<MAX_INV;i++){
-      const s=inv[i];
-      const slot=document.createElement("div");
-      slot.className="slot"+(s?"":" empty");
-      slot.dataset.index=String(i);
+    for (let i=0; i<MAX_INV; i++){
+      const s = inv[i];
+      const slot = document.createElement("div");
+      slot.className = "slot" + (s ? "" : " empty");
+      slot.dataset.index = String(i);
 
       if (!s){
         slot.innerHTML = `<div class="icon">.</div><div class="name">Empty</div>`;
       } else {
-        const item=Items[s.id];
+        const item = Items[s.id];
         const qty = (s.qty|0) || 1;
         slot.innerHTML = `
           <div class="icon">${item?.icon ?? UNKNOWN_ICON}</div>
@@ -2152,17 +2145,15 @@ const skillsCombatPillEl = document.getElementById("skillsCombatPill");
     }
   }
 
-    function renderSkills(){
-    skillsGrid.innerHTML="";
-if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCombatLevel(Skills)}`;
+  function renderSkills(){
+    skillsGrid.innerHTML = "";
+    if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCombatLevel(Skills)}`;
 
     const order = ["health","accuracy","power","defense","ranged","sorcery","fletching","woodcutting","mining","fishing","firemaking","cooking"];
-
-
     for (const k of order){
       const s = Skills[k];
       const skillName = getSkillName(k);
-      const {lvl,next,pct} = xpToNext(s.xp);
+      const { lvl, next, pct } = xpToNext(s.xp);
       const toNext = Math.max(0, next - s.xp);
       const icon = SKILL_ICONS[k] ?? SKILL_FALLBACK_ICON;
 
@@ -2179,7 +2170,6 @@ if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCom
       skillsGrid.appendChild(div);
     }
   }
-
 
   function renderQuiverSlot(){
     if (!eqQuiverIcon || !eqQuiverName || !eqQuiverQty) return;
@@ -2223,17 +2213,17 @@ if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCom
   }
 
   function renderBank(){
-    bankGrid.innerHTML="";
+    bankGrid.innerHTML = "";
     bankCountEl.textContent = `${countSlots(bank)}/${MAX_BANK}`;
-    for (let i=0;i<MAX_BANK;i++){
-      const s=bank[i];
-      const slot=document.createElement("div");
-      slot.className="slot"+(s?"":" empty");
-      slot.dataset.index=String(i);
+    for (let i=0; i<MAX_BANK; i++){
+      const s = bank[i];
+      const slot = document.createElement("div");
+      slot.className = "slot" + (s ? "" : " empty");
+      slot.dataset.index = String(i);
       if (!s){
         slot.innerHTML = `<div class="icon">.</div><div class="name">Empty</div>`;
       } else {
-        const item=Items[s.id];
+        const item = Items[s.id];
         const qty = (s.qty|0) || 1;
         slot.innerHTML = `
           <div class="icon">${item?.icon ?? UNKNOWN_ICON}</div>
@@ -2245,181 +2235,263 @@ if (skillsCombatPillEl) skillsCombatPillEl.textContent = `Combat: ${getPlayerCom
     }
   }
 
-  // ---------- Melee training UI binding ----------
-  const meleeTrainingSeg = document.getElementById("meleeTrainingSeg");
-  function renderMeleeTrainingUI(){
-    for (const btn of meleeTrainingSeg.querySelectorAll(".segBtn")){
-      btn.classList.toggle("active", btn.dataset.melee === meleeState.selected);
-    }
+  // ---------- Vendor UI ----------
+  const vendorGoldPill = document.getElementById("vendorGoldPill");
+  const vendorListEl = document.getElementById("vendorList");
+  const vendorTabBuyBtn = document.getElementById("vendorTabBuyBtn");
+  const vendorTabSellBtn = document.getElementById("vendorTabSellBtn");
+
+  function vendorBuyPrice(id){
+    const row = DEFAULT_VENDOR_STOCK.find(x => x.id === id);
+    return row ? (row.price|0) : null;
   }
-  meleeTrainingSeg.addEventListener("click", (e) => {
-    const btn = e.target.closest(".segBtn");
-    if (!btn) return;
-    const v = btn.dataset.melee;
-    if (v === "accuracy" || v === "power" || v === "defense"){
-      meleeState.selected = v;
-      saveMeleeTraining();
-      renderMeleeTrainingUI();
-      chatLine(`<span class="muted">Melee Training set to <b>${Skills[v].name}</b>.</span>`);
-    }
-  });
-
-  // ---------- Chat input ----------
-  const chatInput=document.getElementById("chatInput");
-  const chatSend=document.getElementById("chatSend");
-  function sendChat(){
-    const t=(chatInput.value||"").trim();
-    if (!t) return;
-    chatLine(`<span style="color:${player.color}; font-weight:900;">${player.name}:</span> ${t}`);
-    chatInput.value="";
-  }
-  chatSend.onclick = sendChat;
-  chatInput.addEventListener("keydown", (e)=>{ if (e.key==="Enter") sendChat(); });
-
-  // ---------- Chat UI: draggable + resizable + collapsible ----------
-  const gameAreaEl = document.getElementById("gameArea");
-  const hudChat = document.getElementById("hudChat");
-  const hudChatHeader = document.getElementById("hudChatHeader");
-  const hudChatMin = document.getElementById("hudChatMin");
-  const hudChatResize = document.getElementById("hudChatResize");
-  const hudChatTab = document.getElementById("hudChatTab");
-
-  function loadChatUI(){
-    const raw = localStorage.getItem(CHAT_UI_KEY);
-    if (!raw) return;
-    try{
-      const d = JSON.parse(raw);
-      if (typeof d.left === "number") chatUI.left = d.left;
-      if (typeof d.top === "number") chatUI.top = d.top;
-      if (typeof d.width === "number") chatUI.width = d.width;
-      if (typeof d.height === "number") chatUI.height = d.height;
-      if (typeof d.collapsed === "boolean") chatUI.collapsed = d.collapsed;
-    }catch{}
-  }
-  function saveChatUI(){ localStorage.setItem(CHAT_UI_KEY, JSON.stringify(chatUI)); }
-
-  function clampChatToBounds(){
-    const areaW = gameAreaEl.clientWidth;
-    const areaH = gameAreaEl.clientHeight;
-
-    const minW = 260, minH = 220;
-    chatUI.width = clamp(chatUI.width, minW, Math.max(minW, areaW - 12));
-    chatUI.height = clamp(chatUI.height, minH, Math.max(minH, areaH - 12));
-
-    if (chatUI.top == null){
-      chatUI.top = Math.max(12, areaH - chatUI.height - 12);
-    }
-
-    const w = chatUI.collapsed ? 90 : chatUI.width;
-    const h = chatUI.collapsed ? 40 : chatUI.height;
-
-    chatUI.left = clamp(chatUI.left, 12, Math.max(12, areaW - w - 12));
-    chatUI.top  = clamp(chatUI.top,  12, Math.max(12, areaH - h - 12));
+  function vendorSellPrice(id){
+    const p = vendorBuyPrice(id);
+    if (p == null) return null;
+    return Math.max(1, Math.floor(p * VENDOR_SELL_MULT));
   }
 
-  function applyChatUI(){
-    clampChatToBounds();
-    hudChat.classList.toggle("collapsed", chatUI.collapsed);
-    hudChat.style.left = `${chatUI.left}px`;
-    hudChat.style.top = `${chatUI.top}px`;
-    hudChat.style.bottom = "";
+  function renderVendorUI(){
+    if (!vendorListEl) return;
 
-    if (chatUI.collapsed){
-      hudChat.style.width = "auto";
-      hudChat.style.height = "auto";
-    } else {
-      hudChat.style.width = `${chatUI.width}px`;
-      hudChat.style.height = `${chatUI.height}px`;
-    }
-  }
+    if (vendorGoldPill) vendorGoldPill.textContent = `Gold: ${getGold()}`;
 
-  function setChatCollapsed(v){
-    chatUI.collapsed = !!v;
-    applyChatUI();
-    saveChatUI();
-  }
+    // tab button styles
+    if (vendorTabBuyBtn) vendorTabBuyBtn.classList.toggle("active", availability.vendorTab === "buy");
+    if (vendorTabSellBtn) vendorTabSellBtn.classList.toggle("active", availability.vendorTab === "sell");
 
-  hudChatMin.addEventListener("click", (e)=>{ e.stopPropagation(); setChatCollapsed(true); });
-  hudChatTab.addEventListener("click", ()=> setChatCollapsed(false));
+    vendorListEl.innerHTML = "";
 
-  let dragMode = null;
-  let dragStart = null;
+    if (availability.vendorTab === "buy"){
+      for (const row of DEFAULT_VENDOR_STOCK){
+        const it = Items[row.id];
+        if (!it) continue;
 
-  hudChatHeader.addEventListener("mousedown", (e)=>{
-    if (e.target === hudChatMin) return;
-    e.preventDefault();
-    dragMode = "move";
-    dragStart = { x: e.clientX, y: e.clientY, left: chatUI.left, top: chatUI.top };
-  });
+        const line = document.createElement("div");
+        line.className = "shopRow";
+        line.innerHTML = `
+          <div class="shopLeft">
+            <div class="shopIcon">${it.icon ?? UNKNOWN_ICON}</div>
+            <div class="shopMeta">
+              <div class="shopName">${it.name ?? row.id}</div>
+              <div class="shopSub">Price: ${row.price} gold</div>
+            </div>
+          </div>
+          <div class="shopActions"></div>
+        `;
 
-  hudChatResize.addEventListener("mousedown", (e)=>{
-    e.preventDefault();
-    dragMode = "resize";
-    dragStart = { x: e.clientX, y: e.clientY, w: chatUI.width, h: chatUI.height };
-  });
+        const actions = line.querySelector(".shopActions");
+        const bulks = Array.isArray(row.bulk) && row.bulk.length ? row.bulk : [1];
 
-  window.addEventListener("mousemove", (e)=>{
-    if (!dragMode || !dragStart) return;
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
+        for (const qty of bulks){
+          const btn = document.createElement("button");
+          btn.className = "shopBtn";
+          btn.textContent = `Buy x${qty}`;
+          btn.onclick = () => {
+            const cost = (row.price|0) * (qty|0);
+            if (!spendGold(cost)){
+              chatLine(`<span class="warn">Not enough gold.</span>`);
+              return;
+            }
 
-    if (dragMode === "move"){
-      chatUI.left = dragStart.left + dx;
-      chatUI.top  = dragStart.top + dy;
-      applyChatUI();
-    } else if (dragMode === "resize"){
-      chatUI.width  = dragStart.w + dx;
-      chatUI.height = dragStart.h + dy;
-      applyChatUI();
-    }
-  });
+            // ammo routes to quiver; others go to inventory
+            const added = addToInventory(row.id, qty);
+            if (added <= 0){
+              // refund if nothing could be added
+              addGold(cost);
+              chatLine(`<span class="warn">Inventory full.</span>`);
+              return;
+            }
 
-  window.addEventListener("mouseup", ()=>{
-    if (!dragMode) return;
-    dragMode = null;
-    dragStart = null;
-    saveChatUI();
-  });
+            chatLine(`<span class="good">Bought ${qty}x ${it.name}.</span>`);
+            renderVendorUI();
+            renderInv();
+            renderQuiver();
+          };
+          actions.appendChild(btn);
+        }
 
-  window.addEventListener("resize", ()=>{
-    applyChatUI();
-    saveChatUI();
-    updateBankIcon();
-updateVendorIcon();
-
-  });
-
-  // ---------- Context menu ----------
-  const ctxMenu=document.createElement("div");
-  ctxMenu.className="ctxmenu hidden";
-  document.body.appendChild(ctxMenu);
-
-  function closeCtxMenu(){ ctxMenu.classList.add("hidden"); ctxMenu.innerHTML=""; }
-  function openCtxMenu(clientX, clientY, options){
-    ctxMenu.innerHTML="";
-    for (const opt of options){
-      if (opt.type==="sep"){
-        const sep=document.createElement("div"); sep.className="sep"; ctxMenu.appendChild(sep); continue;
+        vendorListEl.appendChild(line);
       }
-      const b=document.createElement("button");
-if (opt.className) b.classList.add(opt.className);
-
-      b.textContent=opt.label;
-      b.onclick=()=>{ closeCtxMenu(); opt.onClick(); };
-      ctxMenu.appendChild(b);
+      return;
     }
-    ctxMenu.classList.remove("hidden");
-    const rect=ctxMenu.getBoundingClientRect();
-    const pad=8;
-    ctxMenu.style.left = clamp(clientX,pad,window.innerWidth-rect.width-pad)+"px";
-    ctxMenu.style.top  = clamp(clientY,pad,window.innerHeight-rect.height-pad)+"px";
+
+    // SELL tab: show unique sellable items currently in inventory.
+    const seen = new Map(); // id -> count
+    for (const s of inv){
+      if (!s) continue;
+      const id = s.id;
+      const item = Items[id];
+      if (!item) continue;
+      const qty = item.stack ? Math.max(1, s.qty|0) : 1;
+      seen.set(id, (seen.get(id)|0) + qty);
+    }
+
+    for (const [id, count] of seen.entries()){
+      const it = Items[id];
+      const price = vendorSellPrice(id);
+      if (price == null) continue; // vendor doesn't buy it
+
+      const line = document.createElement("div");
+      line.className = "shopRow";
+      line.innerHTML = `
+        <div class="shopLeft">
+          <div class="shopIcon">${it.icon ?? UNKNOWN_ICON}</div>
+          <div class="shopMeta">
+            <div class="shopName">${it.name ?? id} ${count>1 ? `x${count}` : ""}</div>
+            <div class="shopSub">Sell: ${price} gold</div>
+          </div>
+        </div>
+        <div class="shopActions"></div>
+      `;
+
+      const actions = line.querySelector(".shopActions");
+
+      const btn1 = document.createElement("button");
+      btn1.className = "shopBtn";
+      btn1.textContent = "Sell x1";
+      btn1.onclick = () => {
+        if (!removeItemsFromInventory(id, 1)){
+          chatLine(`<span class="warn">You don't have that.</span>`);
+          return;
+        }
+        addGold(price);
+        chatLine(`<span class="good">Sold 1x ${it.name}.</span>`);
+        renderVendorUI();
+        renderInv();
+        renderQuiver();
+      };
+      actions.appendChild(btn1);
+
+      if (count > 1){
+        const btnAll = document.createElement("button");
+        btnAll.className = "shopBtn";
+        btnAll.textContent = "Sell all";
+        btnAll.onclick = () => {
+          let sold = 0;
+          for (let i=0; i<count; i++){
+            if (!removeItemsFromInventory(id, 1)) break;
+            sold++;
+          }
+          if (sold){
+            addGold(price * sold);
+            chatLine(`<span class="good">Sold ${sold}x ${it.name}.</span>`);
+          }
+          renderVendorUI();
+          renderInv();
+          renderQuiver();
+        };
+        actions.appendChild(btnAll);
+      }
+
+      vendorListEl.appendChild(line);
+    }
+
+    if (!vendorListEl.childElementCount){
+      vendorListEl.innerHTML = `<div class="hint">You have nothing the vendor will buy.</div>`;
+    }
   }
-  document.addEventListener("mousedown",(e)=>{ if (!ctxMenu.classList.contains("hidden") && !ctxMenu.contains(e.target)) closeCtxMenu(); });
-  document.addEventListener("keydown",(e)=>{ if (e.key==="Escape") closeCtxMenu(); });
-  window.addEventListener("blur", closeCtxMenu);
+
+  if (vendorTabBuyBtn) vendorTabBuyBtn.addEventListener("click", ()=>{ availability.vendorTab = "buy"; renderVendorUI(); });
+  if (vendorTabSellBtn) vendorTabSellBtn.addEventListener("click", ()=>{ availability.vendorTab = "sell"; renderVendorUI(); });
+
+  // Open state: inventory + equipment can be open simultaneously.
+
+  function applyWindowVis(){
+    winInventory.classList.toggle("hidden", !windowsOpen.inventory);
+    winEquipment.classList.toggle("hidden", !windowsOpen.equipment);
+    winSkills.classList.toggle("hidden", !windowsOpen.skills);
+    winBank.classList.toggle("hidden", !windowsOpen.bank);
+    winVendor.classList.toggle("hidden", !windowsOpen.vendor);
+
+    winSettings.classList.toggle("hidden", !windowsOpen.settings);
+
+    iconInv.classList.toggle("active", windowsOpen.inventory);
+    iconEqp.classList.toggle("active", windowsOpen.equipment);
+    iconSki.classList.toggle("active", windowsOpen.skills);
+    iconSet.classList.toggle("active", windowsOpen.settings);
+    iconBank.classList.toggle("active", windowsOpen.bank);
+    if (iconVendor) iconVendor.classList.toggle("active", windowsOpen.vendor);
+    if (winVendor) winVendor.classList.toggle("hidden", !windowsOpen.vendor);
+  }
+
+  function closeExclusive(exceptName){
+    // Skills / Bank / Settings are exclusive *between themselves*, but do not close inventory/equipment.
+    for (const k of ["skills","bank","vendor","settings"]){
+      if (k !== exceptName) windowsOpen[k] = false;
+    }
+  }
+
+  function openWindow(name){
+    if (name === "inventory" || name === "equipment"){
+      windowsOpen[name] = true;
+    } else {
+      closeExclusive(name);
+      windowsOpen[name] = true;
+    }
+
+    // Bank access should auto-open inventory
+    if (name === "bank"){
+      windowsOpen.inventory = true;
+    }
+
+    applyWindowVis();
+    saveWindowsUI();
+  }
+
+  function closeWindow(name){
+    windowsOpen[name] = false;
+    applyWindowVis();
+    saveWindowsUI();
+  }
+
+  function toggleWindow(name){
+    if (name === "bank" && !availability.bank) return;
+    if (name === "vendor" && !availability.vendor) {
+      chatLine(`<span class="muted">You need to be next to a vendor to trade.</span>`);
+      return;
+    }
+    const isOpen = !!windowsOpen[name];
+    if (isOpen){
+      closeWindow(name);
+      return;
+    }
+    openWindow(name);
+  }
+
+  iconInv.addEventListener("click", () => toggleWindow("inventory"));
+  iconEqp.addEventListener("click", () => toggleWindow("equipment"));
+  iconSki.addEventListener("click", () => toggleWindow("skills"));
+  iconSet.addEventListener("click", () => toggleWindow("settings"));
+  iconBank.addEventListener("click", () => toggleWindow("bank"));
+  iconVendor.addEventListener("click", () => toggleWindow("vendor"));
+  function updateBankIcon(){
+    if (availability.bank){
+      iconBank.classList.remove("disabled");
+      iconBank.style.display = "";
+    } else {
+      iconBank.classList.add("disabled");
+      iconBank.style.display = "none";
+      windowsOpen.bank = false;
+      applyWindowVis();
+    }
+  }
+
+  function updateVendorIcon(){
+    if (!iconVendor) return;
+    if (availability.vendor){
+      iconVendor.classList.remove("disabled");
+      iconVendor.style.display = "";
+    } else {
+      iconVendor.classList.add("disabled");
+      iconVendor.style.display = "none";
+      windowsOpen.vendor = false;
+      applyWindowVis();
+    }
+  }
 
   // ---------- Bank interactions ----------
-  function depositFromInv(invIndex, qty=null){
+  function depositFromInv(invIndex, qty=null, exactSlotOnly=false){
     const s=inv[invIndex]; if (!s) return;
     const id = s.id;
     const item = Items[id];
@@ -2445,10 +2517,29 @@ if (opt.className) b.classList.add(opt.className);
       return;
     }
 
+    if (exactSlotOnly){
+      const ok = addToBank(bank, id, 1);
+      if (!ok){
+        chatLine(`<span class="warn">Bank is full.</span>`);
+        return;
+      }
+      inv[invIndex] = null;
+      renderInv();
+      renderBank();
+      return;
+    }
+
     const want = qty==null ? 1 : Math.max(1, qty|0);
+    let firstIdx = invIndex;
     let moved = 0;
     for (let i=0;i<want;i++){
-      const idx = inv.findIndex(x => x && x.id===id);
+      let idx = -1;
+      if (firstIdx >= 0 && inv[firstIdx] && inv[firstIdx].id === id){
+        idx = firstIdx;
+        firstIdx = -1;
+      } else {
+        idx = inv.findIndex(x => x && x.id===id);
+      }
       if (idx<0) break;
       const ok = addToBank(bank, id, 1);
       if (!ok){ chatLine(`<span class="warn">Bank is full.</span>`); break; }
@@ -2456,6 +2547,82 @@ if (opt.className) b.classList.add(opt.className);
       moved++;
     }
     if (moved>0){ renderInv(); renderBank(); }
+  }
+
+  function countInvQtyById(id){
+    const item = Items[id];
+    if (!item) return 0;
+    let total = 0;
+    for (const s of inv){
+      if (!s || s.id !== id) continue;
+      total += item.stack ? Math.max(1, s.qty|0) : 1;
+    }
+    return total;
+  }
+
+  function depositByIdFromInv(invIndex, qty=null){
+    const src = inv[invIndex];
+    if (!src) return;
+    const id = src.id;
+    const item = Items[id];
+    if (!item) return;
+
+    if (!availability.bank){
+      chatLine(`<span class="warn">You must be at a bank chest to bank items.</span>`);
+      return;
+    }
+
+    const have = countInvQtyById(id);
+    if (have <= 0) return;
+    let remaining = qty==null ? have : Math.min(Math.max(1, qty|0), have);
+    let moved = 0;
+
+    if (item.stack){
+      for (let i=0; i<inv.length && remaining>0; i++){
+        const s = inv[i];
+        if (!s || s.id !== id) continue;
+
+        const stackQty = Math.max(1, s.qty|0);
+        const take = Math.min(remaining, stackQty);
+        const ok = addToBank(bank, id, take);
+        if (!ok){
+          chatLine(`<span class="warn">Bank is full.</span>`);
+          break;
+        }
+
+        const left = stackQty - take;
+        inv[i] = left > 0 ? { id, qty: left } : null;
+        moved += take;
+        remaining -= take;
+      }
+    } else {
+      const tryMoveOne = (idx)=>{
+        if (remaining <= 0) return;
+        const s = inv[idx];
+        if (!s || s.id !== id) return;
+        const ok = addToBank(bank, id, 1);
+        if (!ok){
+          remaining = 0;
+          chatLine(`<span class="warn">Bank is full.</span>`);
+          return;
+        }
+        inv[idx] = null;
+        moved++;
+        remaining--;
+      };
+
+      // Keep clicked slot behavior intuitive.
+      tryMoveOne(invIndex);
+      for (let i=0; i<inv.length && remaining>0; i++){
+        if (i === invIndex) continue;
+        tryMoveOne(i);
+      }
+    }
+
+    if (moved>0){
+      renderInv();
+      renderBank();
+    }
   }
 
   function withdrawFromBank(bankIndex, qty=null){
@@ -2588,7 +2755,7 @@ if (toolId === "flint_steel" && targetId === "log") {
   player.path = [];
   syncPlayerPix();
 
-  startTimedAction("firemake", 1.2, "Lighting fire…", () => {
+  startTimedAction("firemake", 1.2, "Lighting fireâ€¦", () => {
     // Re-check tile (something could have spawned / moved here)
     if (getEntityAt(player.x, player.y)){
       chatLine(`<span class="warn">That space is occupied.</span>`);
@@ -2634,6 +2801,52 @@ if (toolId === "flint_steel" && targetId === "log") {
     return false;
   }
 
+  // ---------- Context menu ----------
+  const ctxMenu = document.createElement("div");
+  ctxMenu.className = "ctxmenu hidden";
+  document.body.appendChild(ctxMenu);
+
+  function closeCtxMenu(){
+    ctxMenu.classList.add("hidden");
+    ctxMenu.innerHTML = "";
+  }
+
+  function openCtxMenu(clientX, clientY, options){
+    ctxMenu.innerHTML = "";
+    for (const opt of options){
+      if (opt.type === "sep"){
+        const sep = document.createElement("div");
+        sep.className = "sep";
+        ctxMenu.appendChild(sep);
+        continue;
+      }
+      const b = document.createElement("button");
+      if (opt.className) b.classList.add(opt.className);
+      b.textContent = opt.label;
+      b.onclick = ()=>{
+        closeCtxMenu();
+        opt.onClick();
+      };
+      ctxMenu.appendChild(b);
+    }
+
+    ctxMenu.classList.remove("hidden");
+    const rect = ctxMenu.getBoundingClientRect();
+    const pad = 8;
+    ctxMenu.style.left = `${clamp(clientX, pad, window.innerWidth - rect.width - pad)}px`;
+    ctxMenu.style.top = `${clamp(clientY, pad, window.innerHeight - rect.height - pad)}px`;
+  }
+
+  document.addEventListener("mousedown", (e)=>{
+    if (!ctxMenu.classList.contains("hidden") && !ctxMenu.contains(e.target)){
+      closeCtxMenu();
+    }
+  });
+  document.addEventListener("keydown", (e)=>{
+    if (e.key === "Escape") closeCtxMenu();
+  });
+  window.addEventListener("blur", closeCtxMenu);
+
   // ---------- Right-click on inventory items: Equip / Use / Drop ----------
   invGrid.addEventListener("contextmenu", (e) => {
     e.preventDefault();
@@ -2645,21 +2858,25 @@ if (toolId === "flint_steel" && targetId === "log") {
 
     const item=Items[s.id];
 
+    if (windowsOpen.bank){
+      const have = countInvQtyById(s.id);
+      const opts = [];
+      opts.push({ label: "Deposit 1", onClick: ()=> depositByIdFromInv(idx, 1) });
+      opts.push({ label: "Deposit 5", onClick: ()=> depositByIdFromInv(idx, 5) });
+      opts.push({ label: "Deposit 10", onClick: ()=> depositByIdFromInv(idx, 10) });
+      opts.push({ label: "Deposit X...", onClick: ()=>{
+        const v = prompt("Deposit how many?", "10");
+        const n = Math.max(1, parseInt(v||"",10) || 0);
+        if (n>0) depositByIdFromInv(idx, n);
+      }});
+      opts.push({ label: "Deposit All", onClick: ()=> depositByIdFromInv(idx, have) });
+      openCtxMenu(e.clientX, e.clientY, opts);
+      return;
+    }
+
     const opts=[];
     if (item?.heal > 0){
       opts.push({ label: "Eat", onClick: ()=> consumeFoodFromInv(idx) });
-    }
-
-
-    if (windowsOpen.bank){
-      opts.push({ label: "Deposit", onClick: ()=> depositFromInv(idx, null) });
-      opts.push({ label: "Deposit X…", onClick: ()=>{
-        const v = prompt("Deposit how many?", "10");
-        const n = Math.max(1, parseInt(v||"",10) || 0);
-        if (n>0) depositFromInv(idx, n);
-      }});
-      openCtxMenu(e.clientX, e.clientY, opts);
-      return;
     }
 
     const slotName = canEquip(s.id);
@@ -2734,7 +2951,7 @@ if (toolId === "flint_steel" && targetId === "log") {
 
 
     if (windowsOpen.bank){
-      depositFromInv(idx, null);
+      depositFromInv(idx, 1);
       return;
     }
     // Left-click food to eat
@@ -2762,13 +2979,14 @@ return;
     }
   });
 
-  // Bank: click withdraw; right-click withdraw X
+  // Bank: left-click withdraw one; right-click choose amount
   bankGrid.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
     const slot = e.target.closest(".slot");
     if (!slot) return;
     const idx = parseInt(slot.dataset.index,10);
     if (!bank[idx]) return;
-    withdrawFromBank(idx, null);
+    withdrawFromBank(idx, 1);
   });
 
   bankGrid.addEventListener("contextmenu", (e) => {
@@ -2780,24 +2998,18 @@ return;
     if (!s) return;
     const item=Items[s.id];
 
-    const opts=[];
-    if (item?.ammo){
-      opts.push({ label: "Withdraw to Quiver", onClick: ()=> withdrawFromBank(idx, null) });
-      opts.push({ label: "Withdraw X…", onClick: ()=>{
-        const v = prompt("Withdraw how many?", "10");
-        const n = Math.max(1, parseInt(v||"",10) || 0);
-        if (n>0) withdrawFromBank(idx, n);
-      }});
-    } else {
-      opts.push({ label: `Withdraw ${item?.stack ? "All" : ""}`.trim(), onClick: ()=> withdrawFromBank(idx, null) });
-      if (item?.stack){
-        opts.push({ label: "Withdraw X…", onClick: ()=>{
-          const v = prompt("Withdraw how many?", "10");
-          const n = Math.max(1, parseInt(v||"",10) || 0);
-          if (n>0) withdrawFromBank(idx, n);
-        }});
-      }
-    }
+        const opts=[];
+    const suffix = item?.ammo ? " to Quiver" : "";
+    const have = Math.max(1, s.qty|0);
+    opts.push({ label: `Withdraw 1${suffix}`, onClick: ()=> withdrawFromBank(idx, 1) });
+    opts.push({ label: `Withdraw 5${suffix}`, onClick: ()=> withdrawFromBank(idx, 5) });
+    opts.push({ label: `Withdraw 10${suffix}`, onClick: ()=> withdrawFromBank(idx, 10) });
+    opts.push({ label: `Withdraw X...${suffix}`, onClick: ()=>{
+      const v = prompt("Withdraw how many?", "10");
+      const n = Math.max(1, parseInt(v||"",10) || 0);
+      if (n>0) withdrawFromBank(idx, n);
+    }});
+    opts.push({ label: `Withdraw All${suffix}`, onClick: ()=> withdrawFromBank(idx, have) });
     openCtxMenu(e.clientX, e.clientY, opts);
   });
 
@@ -3241,7 +3453,7 @@ if (ent.kind==="decor"){
 function lvlOf(skillKey){ return levelFromXP(Skills[skillKey]?.xp ?? 0); }
 function mobLvl(m, key){ return (m?.levels?.[key] ?? 1) | 0; }
 
-// simple “RS-like” feel: accuracy vs defense, clamped so nothing is 100%
+// simple â€œRS-likeâ€ feel: accuracy vs defense, clamped so nothing is 100%
 function calcHitChance(att, def){
   const a = Math.max(1, att|0);
   const d = Math.max(1, def|0);
@@ -3251,7 +3463,7 @@ function rollHit(att, def){ return Math.random() < calcHitChance(att, def); }
 
 function maxHitFromOffense(off){
   const o = Math.max(1, off|0);
-  return Math.max(1, 1 + Math.floor((o + 2) / 3)); // lvl 1–2 can hit 2
+  return Math.max(1, 1 + Math.floor((o + 2) / 3)); // lvl 1â€“2 can hit 2
 }
 function rollDamageUpTo(maxHit){
   const mh = Math.max(1, maxHit|0);
@@ -3295,7 +3507,7 @@ function rollMobAttack(mob){
 
 function mobTileWalkable(nx, ny){
   if (!isWalkable(nx, ny)) return false;
-  // don’t stand on solid interactables/resources
+  // donâ€™t stand on solid interactables/resources
   if (resources.some(r => r.alive && r.x===nx && r.y===ny)) return false;
   if (interactables.some(it => it.x===nx && it.y===ny && it.type!=="fire")) return false;
   return true;
@@ -3457,7 +3669,7 @@ function updateMobsAI(dt){
     const attackRange = Number.isFinite(def.attackRange) ? def.attackRange : 1.15;
     const atkSpeed    = Number.isFinite(def.attackSpeedMs) ? def.attackSpeedMs : 1300;
 
-    // key change: passive mobs won’t aggro unless hit
+    // key change: passive mobs wonâ€™t aggro unless hit
     const aggroOnSight = (typeKey === "rat") ? false : (def.aggroOnSight !== false);
 
     // smooth motion toward current tile center
@@ -3946,7 +4158,7 @@ const dTiles = tilesFromPlayerToTile(m.x, m.y);
 
 
     if (dTiles > maxRangeTiles){
-  // Prevent “freeze” from pathfinding spam when unreachable
+  // Prevent â€œfreezeâ€ from pathfinding spam when unreachable
   if (tNow < (player._pathTryUntil || 0)) return;
   player._pathTryUntil = tNow + 200; // ms throttle
 
@@ -3985,7 +4197,7 @@ return;
       }
     }
 
-// engage mob so it can retaliate (safe even if you haven’t added AI yet)
+// engage mob so it can retaliate (safe even if you havenâ€™t added AI yet)
 m.target = "player";
 m.provokedUntil = tNow + 15000;
 m.aggroUntil = tNow + 15000;
@@ -5433,7 +5645,7 @@ function drawPlayerWeapon(cx, cy, fx, fy){
   ctx.lineTo(cx+5, cy+7);
   ctx.stroke();
 
-  // weapon (don’t show if you’re already drawing an axe/pick swing)
+  // weapon (donâ€™t show if youâ€™re already drawing an axe/pick swing)
   const a = player.action;
   const doingTool = (a.type==="woodcut" || a.type==="mine");
   if (!doingTool){
@@ -5529,7 +5741,7 @@ function drawPlayerWeapon(cx, cy, fx, fy){
     if (label) lines.push(label);
     if (lootLines.length){
       lines.push("Loot:");
-      for (const l of lootLines) lines.push("• " + l);
+      for (const l of lootLines) lines.push("â€¢ " + l);
     }
 
     const maxW = Math.max(...lines.map(s => ctx.measureText(s).width));
@@ -5547,7 +5759,7 @@ function drawPlayerWeapon(cx, cy, fx, fy){
       if (text==="Loot:"){
         ctx.fillStyle="rgba(251,191,36,.95)";
         ctx.fillText(text, px+7, y);
-      } else if (text.startsWith("• ")){
+      } else if (text.startsWith("â€¢ ")){
         ctx.fillStyle="rgba(230,238,247,.92)";
         ctx.fillText(text, px+7, y);
       } else {
@@ -5956,7 +6168,7 @@ function drawPlayerWeapon(cx, cy, fx, fy){
         if (typeof data.skills[k]==="number") Skills[k].xp = data.skills[k]|0;
       }
 
-      // Migrate old Combat XP → Accuracy/Power/Defense/Ranged (25% each)
+      // Migrate old Combat XP â†’ Accuracy/Power/Defense/Ranged (25% each)
       if (typeof data.skills.combat === "number"){
         const c = Math.max(0, data.skills.combat|0);
         const q = Math.floor(c/4);
@@ -6408,3 +6620,5 @@ initWorldSeed();
   loop();
 
 })();
+
+
