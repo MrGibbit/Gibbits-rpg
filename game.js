@@ -7454,12 +7454,19 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
       if (!m.alive && m.respawnAt && t>=m.respawnAt){
         m.alive = true;
         m.respawnAt = 0;
+        if (Number.isFinite(m.homeX) && Number.isFinite(m.homeY)) {
+          m.x = m.homeX | 0;
+          m.y = m.homeY | 0;
+        }
         m.hp = m.maxHp;
         m.target = null;
         m.provokedUntil = 0;
         m.aggroUntil = 0;
         m.attackCooldownUntil = 0;
         m.moveCooldownUntil = 0;
+        const c = tileCenter(m.x, m.y);
+        m.px = c.cx;
+        m.py = c.cy;
       }
     }
 

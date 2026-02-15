@@ -263,8 +263,13 @@ export function createMobAI(deps) {
           m.target = "player";
           m.aggroUntil = t + 12000;
         } else if (inDungeonZone && (typeKey === "rat" || typeKey === "goblin")) {
-          if (t >= m.moveCooldownUntil) {
-            const roamRadius = Math.min(leash, 3.2);
+          const roamRadius = Math.min(leash, 3.2);
+          if (dFromHome > (roamRadius + 0.05)) {
+            if (t >= m.moveCooldownUntil) {
+              m.moveCooldownUntil = t + 420;
+              mobStepToward(m, m.homeX, m.homeY);
+            }
+          } else if (t >= m.moveCooldownUntil) {
             const roamMinRaw = Number.isFinite(def.dungeonRoamMinMs) ? def.dungeonRoamMinMs : 1400;
             const roamMaxRaw = Number.isFinite(def.dungeonRoamMaxMs) ? def.dungeonRoamMaxMs : 2400;
             const roamMinMs = Math.max(200, Math.min(roamMinRaw, roamMaxRaw));
