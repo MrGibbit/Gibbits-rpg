@@ -1,4 +1,5 @@
 export function createActionResolver(deps) {
+  const PLAYER_ATTACK_COOLDOWN_MS = 1050;
   const {
     player,
     interactables,
@@ -473,7 +474,7 @@ export function createActionResolver(deps) {
       player.facing.y = clamp(m.y - player.y, -1, 1);
 
       if (tNow < player.attackCooldownUntil) return;
-      player.attackCooldownUntil = tNow + 900;
+      player.attackCooldownUntil = tNow + PLAYER_ATTACK_COOLDOWN_MS;
 
       if (style === "ranged") {
         if (!consumeFromQuiver("wooden_arrow", 1)) {
