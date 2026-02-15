@@ -792,20 +792,12 @@ function consumeFoodFromInv(invIndex){
     if (id === "bronze_arrow") id = "wooden_arrow";
     qty = Math.max(1, qty|0);
 
-    if (item.stack){
-      const si = arr.findIndex(s => s && s.id===id);
-      if (si>=0){ arr[si].qty += qty; return true; }
-      const empty = arr.findIndex(s=>!s);
-      if (empty>=0){ arr[empty]={id, qty}; return true; }
-      return false;
-    } else {
-      for (let i=0;i<qty;i++){
-        const empty = arr.findIndex(s=>!s);
-        if (empty<0) return (i>0);
-        arr[empty]={id, qty:1};
-      }
-      return true;
-    }
+    // Bank always stacks same item ids, regardless of inventory stack rules.
+    const si = arr.findIndex(s => s && s.id===id);
+    if (si>=0){ arr[si].qty = Math.max(1, arr[si].qty|0) + qty; return true; }
+    const empty = arr.findIndex(s=>!s);
+    if (empty>=0){ arr[empty]={id, qty}; return true; }
+    return false;
   }
 
   // ---------- Equipment ----------
@@ -2167,7 +2159,33 @@ const BGM_KEY = "classic_bgm_v1";
     renderQuiver();
   }
 
+  function normalizeBankStacks(){
+    const totals = new Map();
+    const order = [];
+
+    for (const s of bank){
+      if (!s) continue;
+      let id = s.id;
+      if (id === "bronze_arrow") id = "wooden_arrow";
+      if (!Items[id]) continue;
+
+      const qty = Math.max(1, s.qty|0);
+      if (!totals.has(id)){
+        totals.set(id, 0);
+        order.push(id);
+      }
+      totals.set(id, (totals.get(id)|0) + qty);
+    }
+
+    clearSlots(bank);
+    for (let i=0; i<order.length && i<MAX_BANK; i++){
+      const id = order[i];
+      bank[i] = { id, qty: totals.get(id)|0 };
+    }
+  }
+
   function renderBank(){
+    normalizeBankStacks();
     bankGrid.innerHTML = "";
     bankCountEl.textContent = `${countSlots(bank)}/${MAX_BANK}`;
     for (let i=0; i<MAX_BANK; i++){
@@ -2185,7 +2203,7 @@ const BGM_KEY = "classic_bgm_v1";
         slot.innerHTML = `
           <div class="icon">${item?.flatIcon ?? item?.icon ?? UNKNOWN_ICON}</div>
           <div class="name">${item?.name ?? s.id}</div>
-          ${(item?.stack && qty>1) ? `<div class="qty">${qty}</div>` : ``}
+          ${qty>1 ? `<div class="qty">${qty}</div>` : ``}
         `;
         const stats = getItemCombatStatText(s.id);
         const tip = `${item?.name ?? s.id}${qty>1 ? ` x${qty}` : ""}${stats ? `\n${stats}` : ""}`;
@@ -2740,7 +2758,7 @@ const BGM_KEY = "classic_bgm_v1";
     if (!item) return;
 
     if (item.ammo){
-      const have = s.qty|0;
+      const have = Math.max(1, s.qty|0);
       const want = qty==null ? have : Math.min(Math.max(1, qty|0), have);
       addToQuiver(s.id, want);
       s.qty -= want;
@@ -2750,22 +2768,12 @@ const BGM_KEY = "classic_bgm_v1";
       return;
     }
 
-    if (item.stack){
-      const have = s.qty|0;
-      const want = qty==null ? have : Math.min(Math.max(1, qty|0), have);
-      const can = Math.min(want, emptyInvSlots());
-      if (can <= 0){ chatLine(`<span class="warn">Inventory full.</span>`); return; }
-      const added = addToInventory(s.id, can);
-      s.qty -= added;
-      if (s.qty<=0) bank[bankIndex]=null;
-      renderBank();
-      return;
-    }
-
-    if (emptyInvSlots() <= 0){ chatLine(`<span class="warn">Inventory full.</span>`); return; }
-    const added = addToInventory(s.id, 1);
-    if (added !== 1){ chatLine(`<span class="warn">Inventory full.</span>`); return; }
-    bank[bankIndex]=null;
+    const have = Math.max(1, s.qty|0);
+    const want = qty==null ? have : Math.min(Math.max(1, qty|0), have);
+    const added = addToInventory(s.id, want);
+    if (added <= 0){ chatLine(`<span class="warn">Inventory full.</span>`); return; }
+    s.qty = have - added;
+    if (s.qty<=0) bank[bankIndex]=null;
     renderBank();
   }
 
@@ -2775,7 +2783,7 @@ const BGM_KEY = "classic_bgm_v1";
       const s=inv[i]; if (!s) continue;
       const item = Items[s.id];
       if (!item) continue;
-      const qty = item.stack ? Math.max(1, s.qty|0) : 1;
+      const qty = Math.max(1, s.qty|0);
       const ok = addToBank(bank, s.id, qty);
       if (!ok) break;
       inv[i]=null;
@@ -2791,21 +2799,16 @@ const BGM_KEY = "classic_bgm_v1";
       if (!item) continue;
 
       if (item.ammo){
-        addToQuiver(s.id, s.qty|0);
+        addToQuiver(s.id, Math.max(1, s.qty|0));
         bank[i]=null;
         continue;
       }
 
-      if (item.stack){
-        while (s && s.qty>0 && emptyInvSlots()>0){
-          if (addToInventory(s.id,1)!==1) break;
-          s.qty -= 1;
-          if (s.qty<=0) bank[i]=null;
-        }
-      } else {
-        if (emptyInvSlots()<=0) break;
-        if (addToInventory(s.id,1)===1) bank[i]=null;
-      }
+      const have = Math.max(1, s.qty|0);
+      const added = addToInventory(s.id, have);
+      if (added <= 0) break;
+      s.qty = have - added;
+      if (s.qty<=0) bank[i]=null;
     }
     renderInv(); renderBank();
   });
