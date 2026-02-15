@@ -8,6 +8,9 @@ export function createEntityLookup(deps) {
       if (it.type === "fire") return { kind: "fire", index: idx, label: "Campfire", x: it.x, y: it.y };
       if (it.type === "bank") return { kind: "bank", index: idx, label: "Bank Chest", x: it.x, y: it.y };
       if (it.type === "vendor") return { kind: "vendor", index: idx, label: "Vendor", x: it.x, y: it.y };
+      if (it.type === "quest_npc") return { kind: "quest_npc", index: idx, label: it.name || "Quartermaster", x: it.x, y: it.y };
+      if (it.type === "sealed_gate") return { kind: "sealed_gate", index: idx, label: (it.open ? "Unsealed Gate" : "Sealed Gate"), x: it.x, y: it.y, open: !!it.open };
+      if (it.type === "brazier") return { kind: "brazier", index: idx, label: (it.lit ? "Lit Brazier" : "Dead Brazier"), x: it.x, y: it.y, lit: !!it.lit };
       if (it.type === "fish") return { kind: "fish", index: idx, label: "Fishing Spot", x: it.x, y: it.y };
       if (it.type === "furnace") return { kind: "furnace", index: idx, label: "Furnace", x: it.x, y: it.y };
       if (it.type === "anvil") return { kind: "anvil", index: idx, label: "Anvil", x: it.x, y: it.y };

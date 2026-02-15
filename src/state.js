@@ -288,6 +288,14 @@ function buildDungeonTemplate() {
   // Lower hall.
   carveRect(22, 25, 35, 34, 3);
 
+  // Sealed boss wing corridor and chamber.
+  carveRect(36, 29, 41, 30, 3);
+  carveRect(42, 24, 54, 35, 3);
+
+  // Wing pit and crossing.
+  carveRect(46, 28, 50, 31, 1);
+  carveRect(48, 28, 48, 31, 5);
+
   // Side alcove.
   carveRect(17, 27, 21, 31, 3);
   carveRect(21, 28, 22, 29, 3);
@@ -298,6 +306,10 @@ function buildDungeonTemplate() {
   // Rubble blockers for visual variety.
   carveRect(24, 30, 25, 31, 2);
   carveRect(32, 27, 33, 28, 2);
+
+  // Gate tiles stay blocked; crossing is done via gate interaction.
+  dMap[29][36] = 4;
+  dMap[30][36] = 4;
 }
 
 buildDungeonTemplate();
@@ -408,6 +420,7 @@ export const windowsOpen = {
   inventory: false,
   equipment: false,
   skills: false,
+  quests: false,
   bank: false,
   smithing: false,
   settings: false,

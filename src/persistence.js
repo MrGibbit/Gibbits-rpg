@@ -43,7 +43,9 @@ export function createPersistence(deps) {
     setZoom,
     manualDropLocks,
     onZoneChanged,
-    renderAfterLoad
+    renderAfterLoad,
+    getQuestSnapshot,
+    applyQuestSnapshot
   } = deps;
 
   const OVERWORLD_ZONE = "overworld";
@@ -190,6 +192,7 @@ export function createPersistence(deps) {
       equipment: { ...equipment },
       quiver: { ...quiver },
       wallet: { ...wallet },
+      quests: (typeof getQuestSnapshot === "function") ? getQuestSnapshot() : null,
       zones,
       // Legacy compatibility fields (overworld snapshot)
       groundLoot: overworldSnapshot.groundLoot,
@@ -559,6 +562,9 @@ export function createPersistence(deps) {
     }
 
     if (typeof data?.zoom === "number") setZoom(data.zoom);
+    if (typeof applyQuestSnapshot === "function") {
+      applyQuestSnapshot(data?.quests ?? null);
+    }
     renderAfterLoad();
   }
 

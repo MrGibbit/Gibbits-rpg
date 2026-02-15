@@ -11,6 +11,20 @@ test("boot, debug API, zone swap, save/load", async ({ page }) => {
   expect(initial.zone).toBe("overworld");
   expect(initial.player.hp).toBeGreaterThan(0);
 
+  await page.click("#iconQst");
+  await page.waitForFunction(() => window.__classicRpg.getState().windowsOpen.quests === true);
+
+  const nearQuartermaster = await page.evaluate(() => {
+    return window.__classicRpg.teleport(8, 6, { requireWalkable: true });
+  });
+  expect(nearQuartermaster).toBeTruthy();
+
+  const talkQuartermaster = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(7, 6);
+  });
+  expect(talkQuartermaster.ok).toBeTruthy();
+  expect(talkQuartermaster.kind).toBe("quest_npc");
+
   const ladders = await page.evaluate(() => window.__classicRpg.getLadders());
   expect(ladders.overworldDown).toBeTruthy();
   expect(ladders.dungeonUp).toBeTruthy();
@@ -27,6 +41,17 @@ test("boot, debug API, zone swap, save/load", async ({ page }) => {
   });
   expect(interactDown.ok).toBeTruthy();
   await page.waitForFunction(() => window.__classicRpg.getState().zone === "dungeon");
+
+  const nearSealedGate = await page.evaluate(() => {
+    return window.__classicRpg.teleport(35, 29, { requireWalkable: true });
+  });
+  expect(nearSealedGate).toBeTruthy();
+
+  const interactSealedGate = await page.evaluate(() => {
+    return window.__classicRpg.interactTile(36, 29);
+  });
+  expect(interactSealedGate.ok).toBeTruthy();
+  expect(interactSealedGate.kind).toBe("sealed_gate");
 
   const nearDungeonLadder = await page.evaluate(() => {
     const l = window.__classicRpg.getLadders().dungeonUp;

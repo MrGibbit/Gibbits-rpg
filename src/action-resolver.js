@@ -42,8 +42,18 @@ export function createActionResolver(deps) {
     meleeState,
     equipment,
     addGold,
-    onUseLadder
+    onUseLadder,
+    onQuestEvent,
+    onTalkQuestNpc,
+    onUseSealedGate,
+    onUseDungeonBrazier,
+    onMobDefeated
   } = deps;
+
+  function emitQuestEvent(payload) {
+    if (typeof onQuestEvent !== "function" || !payload || typeof payload !== "object") return;
+    onQuestEvent(payload);
+  }
 
   function stopIfInventoryFull(message = "Inventory full.") {
     if (emptyInvSlots() > 0) return false;
@@ -81,6 +91,7 @@ export function createActionResolver(deps) {
     startTimedAction(actionType, durationMs, actionLabel, () => {
       if (stopIfInventoryFull("Inventory full.")) return;
       if (!addGatherItemOrStop(itemId, fullMessage)) return;
+      emitQuestEvent({ type: "gather_item", itemId, skillKey, qty: 1 });
 
       if (typeof onCollected === "function") onCollected();
       finishGatherSuccess(skillKey, xpAmount, successMessage);
@@ -136,6 +147,69 @@ export function createActionResolver(deps) {
       openWindow("vendor");
       renderVendorUI();
 
+      stopAction();
+      return;
+    }
+
+    if (t.kind === "quest_npc") {
+      const npc = interactables[t.index];
+      if (!npc) return stopAction();
+
+      if (!inRangeOfTile(npc.x, npc.y, 1.1)) {
+        const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+          .map(([dx, dy]) => ({ x: npc.x + dx, y: npc.y + dy }))
+          .filter((p) => isWalkable(p.x, p.y));
+        if (!adj.length) return stopAction("No path to quartermaster.");
+        adj.sort((a, c) => (Math.abs(a.x - player.x) + Math.abs(a.y - player.y)) - (Math.abs(c.x - player.x) + Math.abs(c.y - player.y)));
+        setPathTo(adj[0].x, adj[0].y);
+        return;
+      }
+
+      if (player.action.type !== "idle") return;
+
+      const npcId = String(npc.npcId || "quartermaster");
+      if (typeof onTalkQuestNpc === "function") onTalkQuestNpc(npcId, npc);
+      emitQuestEvent({ type: "talk_npc", npcId, qty: 1 });
+      stopAction();
+      return;
+    }
+
+    if (t.kind === "sealed_gate") {
+      const gate = interactables[t.index];
+      if (!gate) return stopAction();
+
+      if (!inRangeOfTile(gate.x, gate.y, 1.1)) {
+        const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+          .map(([dx, dy]) => ({ x: gate.x + dx, y: gate.y + dy }))
+          .filter((p) => isWalkable(p.x, p.y));
+        if (!adj.length) return stopAction("No path to sealed gate.");
+        adj.sort((a, c) => (Math.abs(a.x - player.x) + Math.abs(a.y - player.y)) - (Math.abs(c.x - player.x) + Math.abs(c.y - player.y)));
+        setPathTo(adj[0].x, adj[0].y);
+        return;
+      }
+
+      if (player.action.type !== "idle") return;
+      if (typeof onUseSealedGate === "function") onUseSealedGate(gate);
+      stopAction();
+      return;
+    }
+
+    if (t.kind === "brazier") {
+      const brazier = interactables[t.index];
+      if (!brazier) return stopAction();
+
+      if (!inRangeOfTile(brazier.x, brazier.y, 1.1)) {
+        const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+          .map(([dx, dy]) => ({ x: brazier.x + dx, y: brazier.y + dy }))
+          .filter((p) => isWalkable(p.x, p.y));
+        if (!adj.length) return stopAction("No path to brazier.");
+        adj.sort((a, c) => (Math.abs(a.x - player.x) + Math.abs(a.y - player.y)) - (Math.abs(c.x - player.x) + Math.abs(c.y - player.y)));
+        setPathTo(adj[0].x, adj[0].y);
+        return;
+      }
+
+      if (player.action.type !== "idle") return;
+      if (typeof onUseDungeonBrazier === "function") onUseDungeonBrazier(brazier);
       stopAction();
       return;
     }
@@ -204,9 +278,10 @@ export function createActionResolver(deps) {
           return;
         }
 
-        const smeltXp = 45;
+        const smeltXp = 20;
         const got = addToInventory("crude_bar", 1);
         addXP("smithing", smeltXp);
+        emitQuestEvent({ type: "smelt_item", itemId: "crude_bar", fromItemId: smeltId, qty: 1 });
 
         if (got === 1) {
           chatLine(`<span class="good">You smelt a ${Items.crude_bar?.name ?? "Crude Bar"}.</span> (+${smeltXp} XP)`);
@@ -293,6 +368,7 @@ export function createActionResolver(deps) {
         if (useState.activeItemId === cookId) setUseState(null);
 
         const got = addToInventory(rec.out, 1);
+        emitQuestEvent({ type: "cook_any", inItemId: cookId, outItemId: rec.out, qty: 1 });
         if (got === 1) {
           addXP("cooking", rec.xp);
           chatLine(`<span class="good">You ${rec.verb}.</span> (+${rec.xp} XP)`);
@@ -344,6 +420,7 @@ export function createActionResolver(deps) {
         }
 
         if (!addGatherItemOrStop("goldfish", `<span class="warn">Inventory full: ${Items.goldfish.name}</span>`)) return;
+        emitQuestEvent({ type: "gather_item", itemId: "goldfish", skillKey: "fishing", qty: 1 });
         finishGatherSuccess("fishing", 18, `<span class="good">You catch a gold fish.</span> (+18 XP)`);
       });
 
@@ -536,7 +613,7 @@ export function createActionResolver(deps) {
 
       if (m.hp <= 0) {
         m.alive = false;
-        m.respawnAt = now() + 12000;
+        m.respawnAt = (m.type === "skeleton_warden") ? 0 : (now() + 12000);
         m.hp = 0;
         m.target = null;
         m.provokedUntil = 0;
@@ -544,6 +621,7 @@ export function createActionResolver(deps) {
         m.attackCooldownUntil = 0;
         m.moveCooldownUntil = 0;
         chatLine(`<span class="good">You defeat the ${mobName}.</span>`);
+        emitQuestEvent({ type: "kill_mob", mobType: String(m.type || ""), qty: 1 });
 
         if (m.type === "goblin") {
           if (Math.random() < 0.78) {
@@ -574,6 +652,10 @@ export function createActionResolver(deps) {
             addGold(g);
             chatLine(`<span class="good">You gain ${g} gold.</span>`);
           }
+        } else if (m.type === "skeleton_warden") {
+          const g = 140 + Math.floor(Math.random() * 70);
+          addGold(g);
+          chatLine(`<span class="good">The Warden hoard yields ${g} gold.</span>`);
         } else if (m.type === "skeleton") {
           if (Math.random() < 0.95) {
             const got = addToInventory("bone", 1);
@@ -633,6 +715,8 @@ export function createActionResolver(deps) {
             }
           }
         }
+
+        if (typeof onMobDefeated === "function") onMobDefeated(m);
 
         stopAction();
       }

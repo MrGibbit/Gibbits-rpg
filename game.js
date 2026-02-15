@@ -15,7 +15,7 @@ import {
   gatherParticles, combatFX, mouse, player
 } from "./src/state.js";
 import {
-  COOK_RECIPES, CLASS_DEFS, MOB_DEFS, DEFAULT_VENDOR_STOCK, DEFAULT_VENDOR_SELL_ONLY_PRICES, DEFAULT_MOB_LEVELS, VENDOR_SELL_MULT
+  COOK_RECIPES, CLASS_DEFS, MOB_DEFS, DEFAULT_VENDOR_STOCK, DEFAULT_VENDOR_SELL_ONLY_PRICES, DEFAULT_MOB_LEVELS, VENDOR_SELL_MULT, QUEST_DEFS
 } from "./src/game-data.js";
 import {
   createDecorLookup, stampVendorShopLayout, VENDOR_TILE, DECOR_EXAMINE_TEXT
@@ -41,6 +41,7 @@ import { createDebugAPI } from "./src/debug-api.js";
 import { createCharacterStorage } from "./src/character-storage.js";
 import { createCharacterProfiles } from "./src/character-profiles.js";
 import { createStartOverlayUI } from "./src/start-overlay-ui.js";
+import { createCharacterUI } from "./src/character-ui.js";
 
 // Keep this local so game.js doesn't hard-fail if a stale cached state module is loaded.
 const vendorShop = { x0: 16, y0: 3, w: 8, h: 6 };
@@ -138,6 +139,14 @@ stampVendorShopLayout({ map, width: W, height: H, startCastle, vendorShop });
     { x: 24, y: 33 },
     { x: 33, y: 33 }
   ];
+  const DUNGEON_WING_GATE = { x: 36, y: 29 };
+  const DUNGEON_WING_GATE_BOTTOM = { x: 36, y: 30 };
+  const DUNGEON_WING_ROOM = { x0: 42, y0: 24, x1: 54, y1: 35 };
+  const DUNGEON_WING_BRAZIERS = [
+    { id: "west", x: 44, y: 26 },
+    { id: "east", x: 53, y: 26 }
+  ];
+  const DUNGEON_WARDEN_SPAWN = { x: 49, y: 29 };
   const DUNGEON_LEGACY_MOB_LAYOUTS = [
     [
       { type: "rat", x: 14, y: 10 },
@@ -155,10 +164,13 @@ stampVendorShopLayout({ map, width: W, height: H, startCastle, vendorShop });
     { x: 24, y: 7, side: -1 }, { x: 33, y: 7, side: 1 },
     { x: 24, y: 15, side: -1 }, { x: 33, y: 15, side: 1 },
     { x: 23, y: 26, side: -1 }, { x: 34, y: 26, side: 1 },
+    { x: 43, y: 25, side: -1 }, { x: 53, y: 25, side: 1 },
+    { x: 43, y: 34, side: -1 }, { x: 53, y: 34, side: 1 },
   ];
   const DUNGEON_PILLARS = [
     { x: 25, y: 9 }, { x: 32, y: 9 }, { x: 25, y: 13 }, { x: 32, y: 13 },
-    { x: 27, y: 28 }, { x: 30, y: 28 }
+    { x: 27, y: 28 }, { x: 30, y: 28 },
+    { x: 45, y: 27 }, { x: 52, y: 27 }, { x: 45, y: 33 }, { x: 52, y: 33 }
   ];
 
   function iconTile(body, top, mid, edge = "#26180f"){
@@ -484,6 +496,24 @@ function levelStrokeForCls(cls){
       hint:"Will enrich soil once Farming is added.",
       icon:icon("ore", "#d5d8de", "#8c939f", "#414753"),
       flatIcon:flatIcon("ore")
+    },
+    warden_key_fragment: {
+      id:"warden_key_fragment",
+      name:"Warden Key Fragment",
+      stack:false,
+      hint:"A jagged key fragment tied to the old dungeon gate.",
+      icon:icon("bar", "#cdb37f", "#6f5e34", "#2f2614"),
+      flatIcon:flatIcon("bar")
+    },
+    wardens_brand: {
+      id:"wardens_brand",
+      name:"Warden's Brand",
+      stack:false,
+      hint:"A ward-marked relic forged in the boss wing.",
+      icon:icon("shield", "#64748b", "#334155", "#111827"),
+      flatIcon:flatIcon("shield"),
+      equipSlot:"offhand",
+      combat:{ style:"any", def:5 }
     },
     rat_meat: {
       id:"rat_meat",
@@ -941,6 +971,403 @@ function consumeFoodFromInv(invIndex){
   }
   function saveMeleeTraining(){ localStorage.setItem(MELEE_TRAIN_KEY, meleeState.selected); }
 
+  // ---------- Quests ----------
+  const QUESTS = Array.isArray(QUEST_DEFS) ? QUEST_DEFS : [];
+  const QUESTS_BY_ID = new Map(QUESTS.map((q) => [q.id, q]));
+  const questState = { byId: Object.create(null) };
+
+  function createQuestProgressRow(def){
+    const progress = Object.create(null);
+    for (const obj of (def.objectives || [])){
+      const key = String(obj?.id || "");
+      if (!key) continue;
+      progress[key] = 0;
+    }
+    return {
+      startedAt: 0,
+      completedAt: 0,
+      progress,
+      tokens: Object.create(null)
+    };
+  }
+
+  function resetQuestProgress(){
+    questState.byId = Object.create(null);
+    for (const def of QUESTS){
+      const id = String(def?.id || "");
+      if (!id) continue;
+      questState.byId[id] = createQuestProgressRow(def);
+    }
+  }
+
+  function getQuestProgress(questId){
+    const id = String(questId || "");
+    if (!id || !QUESTS_BY_ID.has(id)) return null;
+    if (!questState.byId[id]) questState.byId[id] = createQuestProgressRow(QUESTS_BY_ID.get(id));
+    return questState.byId[id];
+  }
+
+  function isQuestCompleted(questId){
+    const row = getQuestProgress(questId);
+    return !!(row && row.completedAt > 0);
+  }
+
+  function isQuestStarted(questId){
+    const row = getQuestProgress(questId);
+    return !!(row && row.startedAt > 0);
+  }
+
+  function isQuestUnlocked(def){
+    if (!def?.id) return false;
+    const reqs = Array.isArray(def?.requirements) ? def.requirements : [];
+    for (const req of reqs){
+      if (!req || typeof req !== "object") continue;
+      if (req.type === "quest_complete"){
+        if (!isQuestCompleted(req.questId)) return false;
+      }
+    }
+    return true;
+  }
+
+  function getQuestObjectiveTarget(obj){
+    return Math.max(1, obj?.target | 0);
+  }
+
+  function getQuestObjectiveProgress(questId, objectiveId){
+    const row = getQuestProgress(questId);
+    if (!row) return 0;
+    return Math.max(0, row.progress?.[objectiveId] | 0);
+  }
+
+  function isQuestObjectiveComplete(questId, objectiveId){
+    const def = QUESTS_BY_ID.get(String(questId || ""));
+    if (!def) return false;
+    const obj = (def.objectives || []).find((o) => String(o?.id || "") === String(objectiveId || ""));
+    if (!obj) return false;
+    return getQuestObjectiveProgress(questId, objectiveId) >= getQuestObjectiveTarget(obj);
+  }
+
+  function hasQuestObjectiveToken(questId, objectiveId, token){
+    const row = getQuestProgress(questId);
+    if (!row) return false;
+    const key = String(objectiveId || "");
+    const tok = String(token || "");
+    if (!key || !tok) return false;
+    return !!row.tokens?.[key]?.[tok];
+  }
+
+  function objectiveMatchesQuestEvent(obj, ev){
+    if (!obj || !ev) return false;
+    switch (obj.type){
+      case "gather_item":
+        return ev.type === "gather_item" && String(ev.itemId || "") === String(obj.itemId || "");
+      case "cook_any":
+        return ev.type === "cook_any";
+      case "smelt_item":
+        if (ev.type !== "smelt_item") return false;
+        if (!obj.itemId) return true;
+        return String(ev.itemId || "") === String(obj.itemId || "");
+      case "kill_mob":
+        if (ev.type !== "kill_mob") return false;
+        return String(ev.mobType || "") === String(obj.mobType || "");
+      case "talk_npc":
+        if (ev.type !== "talk_npc") return false;
+        return String(ev.npcId || "") === String(obj.npcId || "");
+      case "manual":
+        if (ev.type !== "manual") return false;
+        if (ev.objectiveId && String(ev.objectiveId || "") !== String(obj.id || "")) return false;
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  function startQuest(questId){
+    const def = QUESTS_BY_ID.get(String(questId || ""));
+    const row = getQuestProgress(questId);
+    if (!def || !row) return false;
+    if (row.completedAt > 0) return false;
+    if (!isQuestUnlocked(def)) return false;
+    if (row.startedAt > 0) return false;
+    row.startedAt = Date.now();
+    chatLine(`<span class="good">Quest started: ${def.name}</span>`);
+    renderQuests();
+    return true;
+  }
+
+  function isQuestReadyToComplete(questId){
+    const def = QUESTS_BY_ID.get(String(questId || ""));
+    const row = getQuestProgress(questId);
+    if (!def || !row || row.completedAt > 0) return false;
+    for (const obj of (def.objectives || [])){
+      const objectiveId = String(obj?.id || "");
+      if (!objectiveId) continue;
+      const target = getQuestObjectiveTarget(obj);
+      const current = getQuestObjectiveProgress(questId, objectiveId);
+      if (current < target) return false;
+    }
+    return true;
+  }
+
+  function grantQuestRewards(questId){
+    if (questId === "first_watch"){
+      if (!hasItem("warden_key_fragment")){
+        const added = addToInventory("warden_key_fragment", 1);
+        if (added > 0){
+          chatLine(`<span class="good">Quest reward: Warden Key Fragment.</span>`);
+        } else {
+          addGroundLoot(player.x, player.y, "warden_key_fragment", 1);
+          chatLine(`<span class="warn">Quest reward dropped: Warden Key Fragment (inventory full).</span>`);
+        }
+      }
+      addGold(150);
+      chatLine(`<span class="good">Quest reward: 150 gold.</span>`);
+      return;
+    }
+    if (questId === "ashes_under_the_keep"){
+      if (!hasItem("wardens_brand")){
+        const added = addToInventory("wardens_brand", 1);
+        if (added > 0){
+          chatLine(`<span class="good">Quest reward: Warden's Brand.</span>`);
+        } else {
+          addGroundLoot(player.x, player.y, "wardens_brand", 1);
+          chatLine(`<span class="warn">Quest reward dropped: Warden's Brand (inventory full).</span>`);
+        }
+      }
+      addGold(350);
+      chatLine(`<span class="good">Quest reward: 350 gold.</span>`);
+    }
+  }
+
+  function completeQuest(questId){
+    const def = QUESTS_BY_ID.get(String(questId || ""));
+    const row = getQuestProgress(questId);
+    if (!def || !row || row.completedAt > 0) return false;
+
+    row.completedAt = Date.now();
+    chatLine(`<span class="good">Quest complete: ${def.name}</span>`);
+    grantQuestRewards(def.id);
+
+    for (const next of QUESTS){
+      if (!next || next.id === def.id) continue;
+      if (isQuestCompleted(next.id)) continue;
+      if (isQuestUnlocked(next)){
+        chatLine(`<span class="muted">New quest available: ${next.name}</span>`);
+      }
+    }
+
+    renderQuests();
+    return true;
+  }
+
+  function trackQuestEvent(ev){
+    if (!ev || typeof ev !== "object") return;
+    let changed = false;
+    for (const def of QUESTS){
+      if (!def?.id) continue;
+      if (ev.type === "manual" && ev.questId && String(ev.questId || "") !== String(def.id || "")) continue;
+      const row = getQuestProgress(def.id);
+      if (!row || row.completedAt > 0) continue;
+      if (row.startedAt <= 0) continue;
+      if (!isQuestUnlocked(def)) continue;
+
+      for (const obj of (def.objectives || [])){
+        const objectiveId = String(obj?.id || "");
+        if (!objectiveId) continue;
+        if (!objectiveMatchesQuestEvent(obj, ev)) continue;
+
+        const target = getQuestObjectiveTarget(obj);
+        const current = getQuestObjectiveProgress(def.id, objectiveId);
+        if (current >= target) continue;
+        const token = String(ev.token || "");
+        if (token){
+          if (!row.tokens || typeof row.tokens !== "object") row.tokens = Object.create(null);
+          if (!row.tokens[objectiveId] || typeof row.tokens[objectiveId] !== "object") {
+            row.tokens[objectiveId] = Object.create(null);
+          }
+          if (row.tokens[objectiveId][token]) continue;
+          row.tokens[objectiveId][token] = 1;
+        }
+        if (
+          obj.type === "talk_npc" &&
+          objectiveId === "report_quartermaster" &&
+          current >= 1
+        ) {
+          const canReport = (def.objectives || [])
+            .filter((o) => String(o?.id || "") !== objectiveId)
+            .every((o) => {
+              const otherId = String(o?.id || "");
+              if (!otherId) return true;
+              return getQuestObjectiveProgress(def.id, otherId) >= getQuestObjectiveTarget(o);
+            });
+          if (!canReport) continue;
+        }
+        const gain = Math.max(1, ev.qty | 0);
+        row.progress[objectiveId] = Math.min(target, current + gain);
+        changed = true;
+      }
+
+      if (isQuestReadyToComplete(def.id)) {
+        completeQuest(def.id);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      syncDungeonQuestState();
+      renderQuests();
+    }
+  }
+
+  function getQuestSnapshot(){
+    const byId = {};
+    for (const def of QUESTS){
+      const id = String(def?.id || "");
+      if (!id) continue;
+      const row = getQuestProgress(id);
+      if (!row) continue;
+      byId[id] = {
+        startedAt: Math.max(0, Math.floor(Number(row.startedAt) || 0)),
+        completedAt: Math.max(0, Math.floor(Number(row.completedAt) || 0)),
+        progress: { ...(row.progress || {}) },
+        tokens: Object.fromEntries(
+          Object.entries(row.tokens || {})
+            .filter(([objectiveId, tokenBag]) => objectiveId && tokenBag && typeof tokenBag === "object")
+            .map(([objectiveId, tokenBag]) => [objectiveId, { ...tokenBag }])
+        )
+      };
+    }
+    return { byId };
+  }
+
+  function applyQuestSnapshot(data){
+    resetQuestProgress();
+    const rows = (data && typeof data === "object" && data.byId && typeof data.byId === "object")
+      ? data.byId
+      : null;
+    if (rows){
+      for (const def of QUESTS){
+        const id = String(def?.id || "");
+        if (!id) continue;
+        const src = rows[id];
+        if (!src || typeof src !== "object") continue;
+        const row = getQuestProgress(id);
+        row.startedAt = Math.max(0, Math.floor(Number(src.startedAt) || 0));
+        row.completedAt = Math.max(0, Math.floor(Number(src.completedAt) || 0));
+        row.tokens = Object.create(null);
+        const srcTokens = (src.tokens && typeof src.tokens === "object") ? src.tokens : null;
+        for (const obj of (def.objectives || [])){
+          const objectiveId = String(obj?.id || "");
+          if (!objectiveId) continue;
+          const target = getQuestObjectiveTarget(obj);
+          const cur = Math.max(0, src.progress?.[objectiveId] | 0);
+          row.progress[objectiveId] = Math.min(target, cur);
+          const tokenBag = srcTokens?.[objectiveId];
+          if (tokenBag && typeof tokenBag === "object") {
+            row.tokens[objectiveId] = { ...tokenBag };
+          }
+        }
+      }
+    }
+    syncDungeonQuestState();
+    renderQuests();
+  }
+
+  function getQuestRemainingObjectiveLines(questId){
+    const def = QUESTS_BY_ID.get(String(questId || ""));
+    if (!def) return [];
+    const lines = [];
+    for (const obj of (def.objectives || [])){
+      const objectiveId = String(obj?.id || "");
+      if (!objectiveId) continue;
+      const target = getQuestObjectiveTarget(obj);
+      const current = getQuestObjectiveProgress(questId, objectiveId);
+      if (current >= target) continue;
+      lines.push(`${obj.label} (${current}/${target})`);
+    }
+    return lines;
+  }
+
+  function talkQuartermaster(){
+    const firstId = "first_watch";
+    const secondId = "ashes_under_the_keep";
+
+    const firstCompleted = isQuestCompleted(firstId);
+    const firstStarted = isQuestStarted(firstId);
+
+    if (!firstCompleted && !firstStarted){
+      startQuest(firstId);
+      chatLine(`<span class="muted">Quartermaster:</span> We need proof you can hold the line. Train, craft, and report back.`);
+    } else if (!firstCompleted) {
+      const left = getQuestRemainingObjectiveLines(firstId);
+      if (left.length){
+        chatLine(`<span class="muted">Quartermaster:</span> Keep at it. Remaining tasks:`);
+        for (const line of left.slice(0, 4)){
+          chatLine(`<span class="muted"> - ${line}</span>`);
+        }
+        if (left.length > 4) chatLine(`<span class="muted"> - ...and ${left.length - 4} more.</span>`);
+      }
+    } else {
+      const secondCompleted = isQuestCompleted(secondId);
+      const secondStarted = isQuestStarted(secondId);
+      if (!secondCompleted && !secondStarted && isQuestUnlocked(QUESTS_BY_ID.get(secondId))){
+        startQuest(secondId);
+        chatLine(`<span class="muted">Quartermaster:</span> The lower keep is waking. Take your fragment and prepare for the Warden.`);
+      } else if (!secondCompleted && secondStarted){
+        const left = getQuestRemainingObjectiveLines(secondId);
+        if (left.length){
+          chatLine(`<span class="muted">Quartermaster:</span> Ashes Under the Keep remains unfinished:`);
+          for (const line of left.slice(0, 4)){
+            chatLine(`<span class="muted"> - ${line}</span>`);
+          }
+        } else {
+          chatLine(`<span class="muted">Quartermaster:</span> Hold steady. The way forward will open soon.`);
+        }
+      } else {
+        chatLine(`<span class="muted">Quartermaster:</span> You have done enough for now.`);
+      }
+    }
+  }
+
+  function handleQuestNpcTalk(npcId){
+    if (String(npcId || "") === "quartermaster"){
+      talkQuartermaster();
+      return;
+    }
+    chatLine(`<span class="muted">They nod, but have nothing for you.</span>`);
+  }
+
+  function getQuestGiverNpcId(def){
+    const direct = String(def?.giverNpcId || "").trim();
+    if (direct) return direct;
+    const objectiveNpcIds = new Set();
+    for (const obj of (def?.objectives || [])){
+      if (String(obj?.type || "") !== "talk_npc") continue;
+      const npcId = String(obj?.npcId || "").trim();
+      if (!npcId) continue;
+      objectiveNpcIds.add(npcId);
+      if (objectiveNpcIds.size > 1) break;
+    }
+    if (objectiveNpcIds.size === 1){
+      for (const id of objectiveNpcIds) return id;
+    }
+    return "";
+  }
+
+  function npcHasPendingQuestMarker(npcId){
+    const id = String(npcId || "").trim();
+    if (!id) return false;
+    for (const def of QUESTS){
+      const questId = String(def?.id || "");
+      if (!questId) continue;
+      if (isQuestCompleted(questId)) continue;
+      if (getQuestGiverNpcId(def) !== id) continue;
+      if (!isQuestStarted(questId) && !isQuestUnlocked(def)) continue;
+      return true;
+    }
+    return false;
+  }
+
   // ---------- HP / HUD ----------
   const hudNameEl = document.getElementById("hudName");
   const hudClassEl = document.getElementById("hudClass");
@@ -1085,7 +1512,16 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
 
 }
 
-  function placeInteractable(type,x,y){ interactables.push({type,x,y}); }
+  function placeInteractable(type,x,y,extra={}){ interactables.push({type,x,y,...extra}); }
+  function ensureInteractable(type, x, y, extra = {}){
+    const found = interactables.find((it) => it.type === type && it.x === x && it.y === y);
+    if (found){
+      Object.assign(found, extra);
+      return found;
+    }
+    placeInteractable(type, x, y, extra);
+    return interactables[interactables.length - 1] ?? null;
+  }
 
  function seedResources(){
   resources.length = 0;
@@ -1098,6 +1534,7 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
   const reserved = new Set([
     keyXY(startCastle.x0 + 4, startCastle.y0 + 3),     // bank
     keyXY(VENDOR_TILE.x, VENDOR_TILE.y),               // vendor in shop
+    keyXY(startCastle.x0 + 5, startCastle.y0 + 4),     // quartermaster npc
     keyXY(startCastle.x0 + 6, startCastle.y0 + 4),     // player spawn-ish
     keyXY(OVERWORLD_LADDER_DOWN.x, OVERWORLD_LADDER_DOWN.y), // dungeon ladder
   ]);
@@ -1520,6 +1957,10 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
     const bx = startCastle.x0 + 4;
     const by = startCastle.y0 + 3;
     placeInteractable("bank", bx, by);
+    placeInteractable("quest_npc", startCastle.x0 + 5, startCastle.y0 + 4, {
+      npcId: "quartermaster",
+      name: "Quartermaster Bryn"
+    });
     placeInteractable("vendor", VENDOR_TILE.x, VENDOR_TILE.y);
     placeInteractable("ladder_down", OVERWORLD_LADDER_DOWN.x, OVERWORLD_LADDER_DOWN.y);
 // Fishing spots on the river near the starter castle
@@ -1842,6 +2283,7 @@ const BGM_KEY = "classic_bgm_v1";
   const winInventory = document.getElementById("winInventory");
   const winEquipment = document.getElementById("winEquipment");
   const winSkills    = document.getElementById("winSkills");
+  const winQuests    = document.getElementById("winQuests");
   const winBank      = document.getElementById("winBank");
   const winVendor    = document.getElementById("winVendor");
   const winSmithing  = document.getElementById("winSmithing");
@@ -1851,6 +2293,7 @@ const BGM_KEY = "classic_bgm_v1";
   const iconInv  = document.getElementById("iconInv");
   const iconEqp  = document.getElementById("iconEqp");
   const iconSki  = document.getElementById("iconSki");
+  const iconQst  = document.getElementById("iconQst");
   const iconBank = document.getElementById("iconBank");
   const iconVendor = document.getElementById("iconVendor");
 
@@ -1860,6 +2303,7 @@ const BGM_KEY = "classic_bgm_v1";
     ["inventory", winInventory],
     ["equipment", winEquipment],
     ["skills", winSkills],
+    ["quests", winQuests],
     ["bank", winBank],
     ["vendor", winVendor],
     ["smithing", winSmithing],
@@ -2072,6 +2516,11 @@ const BGM_KEY = "classic_bgm_v1";
 
   const skillsGrid = document.getElementById("skillsGrid");
   const skillsCombatPillEl = document.getElementById("skillsCombatPill");
+  const questsSummaryPillEl = document.getElementById("questsSummaryPill");
+  const questsActiveListEl = document.getElementById("questsActiveList");
+  const questsNewListEl = document.getElementById("questsNewList");
+  const questsLockedListEl = document.getElementById("questsLockedList");
+  const questsCompletedListEl = document.getElementById("questsCompletedList");
 
   const eqWeaponSlot = document.getElementById("eqWeapon");
   const eqOffhandSlot = document.getElementById("eqOffhand");
@@ -2168,6 +2617,98 @@ const BGM_KEY = "classic_bgm_v1";
         <div class="small">${toNext} XP to next</div>
       `;
       skillsGrid.appendChild(div);
+    }
+  }
+
+  function renderQuestCards(container, rows, status){
+    if (!container) return;
+    container.innerHTML = "";
+    if (!rows.length){
+      const empty = document.createElement("div");
+      empty.className = "questEmpty";
+      empty.textContent = (status === "completed")
+        ? "No completed quests yet."
+        : (status === "locked" ? "No locked quests." : (status === "active" ? "No active quests." : "No new quests right now."));
+      container.appendChild(empty);
+      return;
+    }
+
+    for (const row of rows){
+      const def = row.def;
+      const questId = String(def?.id || "");
+      if (!questId) continue;
+
+      const card = document.createElement("div");
+      card.className = "questCard";
+
+      const name = document.createElement("div");
+      name.className = "questName";
+      name.textContent = def.name || questId;
+      card.appendChild(name);
+
+      const summary = document.createElement("div");
+      summary.className = "questSummary";
+      summary.textContent = def.summary || "";
+      card.appendChild(summary);
+
+      const reqs = Array.isArray(def.requirements) ? def.requirements : [];
+      if (reqs.length){
+        for (const req of reqs){
+          const line = document.createElement("div");
+          const ok = (req?.type === "quest_complete") ? isQuestCompleted(req.questId) : true;
+          line.className = `questRow${ok ? " done" : ""}`;
+          line.textContent = `${ok ? "[Done]" : "[Need]"} ${req?.label || req?.questId || "Requirement"}`;
+          card.appendChild(line);
+        }
+      }
+
+      for (const obj of (def.objectives || [])){
+        const objectiveId = String(obj?.id || "");
+        if (!objectiveId) continue;
+        const target = getQuestObjectiveTarget(obj);
+        const current = getQuestObjectiveProgress(questId, objectiveId);
+        const done = current >= target;
+        const line = document.createElement("div");
+        line.className = `questRow${done ? " done" : ""}`;
+        line.textContent = `${done ? "[Done]" : "[ ]"} ${obj.label} (${current}/${target})`;
+        card.appendChild(line);
+      }
+
+      const rewards = Array.isArray(def.rewards) ? def.rewards : [];
+      if (rewards.length){
+        const rewardLine = document.createElement("div");
+        rewardLine.className = "questSummary";
+        rewardLine.textContent = `Rewards: ${rewards.join(" | ")}`;
+        card.appendChild(rewardLine);
+      }
+
+      container.appendChild(card);
+    }
+  }
+
+  function renderQuests(){
+    if (!questsActiveListEl || !questsNewListEl || !questsLockedListEl || !questsCompletedListEl) return;
+
+    const groups = { active: [], new: [], locked: [], completed: [] };
+    for (const def of QUESTS){
+      if (!def?.id) continue;
+      if (isQuestCompleted(def.id)) {
+        groups.completed.push({ def });
+      } else if (isQuestStarted(def.id)) {
+        groups.active.push({ def });
+      } else if (isQuestUnlocked(def)) {
+        groups.new.push({ def });
+      } else {
+        groups.locked.push({ def });
+      }
+    }
+
+    renderQuestCards(questsActiveListEl, groups.active, "active");
+    renderQuestCards(questsNewListEl, groups.new, "new");
+    renderQuestCards(questsLockedListEl, groups.locked, "locked");
+    renderQuestCards(questsCompletedListEl, groups.completed, "completed");
+    if (questsSummaryPillEl){
+      questsSummaryPillEl.textContent = `Active: ${groups.active.length} | New: ${groups.new.length} | Completed: ${groups.completed.length}`;
     }
   }
 
@@ -2601,6 +3142,7 @@ const BGM_KEY = "classic_bgm_v1";
     winInventory.classList.toggle("hidden", !windowsOpen.inventory);
     winEquipment.classList.toggle("hidden", !windowsOpen.equipment);
     winSkills.classList.toggle("hidden", !windowsOpen.skills);
+    if (winQuests) winQuests.classList.toggle("hidden", !windowsOpen.quests);
     winBank.classList.toggle("hidden", !windowsOpen.bank);
     winVendor.classList.toggle("hidden", !windowsOpen.vendor);
     if (winSmithing) winSmithing.classList.toggle("hidden", !windowsOpen.smithing);
@@ -2610,6 +3152,7 @@ const BGM_KEY = "classic_bgm_v1";
     iconInv.classList.toggle("active", windowsOpen.inventory);
     iconEqp.classList.toggle("active", windowsOpen.equipment);
     iconSki.classList.toggle("active", windowsOpen.skills);
+    if (iconQst) iconQst.classList.toggle("active", windowsOpen.quests);
     iconSet.classList.toggle("active", windowsOpen.settings);
     iconBank.classList.toggle("active", windowsOpen.bank);
     if (iconVendor) iconVendor.classList.toggle("active", windowsOpen.vendor);
@@ -2617,8 +3160,8 @@ const BGM_KEY = "classic_bgm_v1";
   }
 
   function closeExclusive(exceptName){
-    // Skills / Bank / Vendor / Smithing / Settings are exclusive between themselves.
-    for (const k of ["skills","bank","vendor","smithing","settings"]){
+    // Skills / Quests / Bank / Vendor / Smithing / Settings are exclusive between themselves.
+    for (const k of ["skills","quests","bank","vendor","smithing","settings"]){
       if (k !== exceptName) windowsOpen[k] = false;
     }
   }
@@ -2637,6 +3180,7 @@ const BGM_KEY = "classic_bgm_v1";
     }
 
     applyWindowVis();
+    if (name === "quests") renderQuests();
     if (name === "smithing") renderSmithingUI();
     saveWindowsUI();
   }
@@ -2668,6 +3212,7 @@ const BGM_KEY = "classic_bgm_v1";
   iconInv.addEventListener("click", () => toggleWindow("inventory"));
   iconEqp.addEventListener("click", () => toggleWindow("equipment"));
   iconSki.addEventListener("click", () => toggleWindow("skills"));
+  if (iconQst) iconQst.addEventListener("click", () => toggleWindow("quests"));
   iconSet.addEventListener("click", () => toggleWindow("settings"));
   iconBank.addEventListener("click", () => toggleWindow("bank"));
   iconVendor.addEventListener("click", () => toggleWindow("vendor"));
@@ -3013,15 +3558,11 @@ const BGM_KEY = "classic_bgm_v1";
   const loadCharList = document.getElementById("loadCharList");
   const loadCharEmpty = document.getElementById("loadCharEmpty");
   const loadCharCancel = document.getElementById("loadCharCancel");
-
-  function setSelectedClass(cls){
-    if (!CLASS_DEFS[cls]) cls = "Warrior";
-    characterState.selectedClass = cls;
-    for (const btn of classPick.querySelectorAll("button[data-class]")){
-      btn.classList.toggle("active", btn.dataset.class === characterState.selectedClass);
-    }
-    charColorPill.textContent = CLASS_DEFS[characterState.selectedClass].color;
-  }
+  const deleteCharBtn = document.getElementById("deleteCharBtn");
+  const newCharBtn = document.getElementById("newCharBtn");
+  const deleteCharOverlay = document.getElementById("deleteCharOverlay");
+  const deleteCharCancel = document.getElementById("deleteCharCancel");
+  const deleteCharConfirm = document.getElementById("deleteCharConfirm");
 
   const {
     loadCharacterList,
@@ -3057,11 +3598,6 @@ const BGM_KEY = "classic_bgm_v1";
     levelFromXP
   });
 
-  function closeLoadCharOverlay(){
-    if (!loadCharOverlay) return;
-    loadCharOverlay.style.display = "none";
-  }
-
   const {
     closeStartOverlay,
     refreshStartOverlay,
@@ -3080,123 +3616,49 @@ const BGM_KEY = "classic_bgm_v1";
     formatSavedAtLabel
   });
 
-  let createNewCharacterPending = false;
-
-  function openCharCreate(force=false, createNew=false){
-    createNewCharacterPending = !!createNew;
-    const saved = loadCharacterPrefs();
-
-    if (!createNewCharacterPending){
-      if (saved?.name) player.name = String(saved.name).slice(0,14);
-      if (saved?.class && CLASS_DEFS[saved.class]) player.class = saved.class;
-      if (saved?.color) player.color = saved.color;
-    }
-
-    if (!createNewCharacterPending && !force && saved?.class && saved?.name){
-      player.color = CLASS_DEFS[player.class]?.color ?? player.color;
-      characterState.selectedClass = player.class;
-      return false;
-    }
-
-    charName.value = createNewCharacterPending ? "Adventurer" : (player.name || "Adventurer");
-    setSelectedClass(createNewCharacterPending ? "Warrior" : (player.class || "Warrior"));
-    charOverlay.style.display="flex";
-    return true;
-  }
-
-  classPick.addEventListener("click", (e)=>{
-    const btn = e.target.closest("button[data-class]");
-    if (!btn) return;
-    setSelectedClass(btn.dataset.class);
+  const {
+    closeLoadCharOverlay,
+    openCharCreate,
+    applyCharacterProfileToPlayer,
+    deleteCharacterById,
+    openLoadCharacterOverlay
+  } = createCharacterUI({
+    classDefs: CLASS_DEFS,
+    characterState,
+    player,
+    charOverlay,
+    charName,
+    charColorPill,
+    charStart,
+    classPick,
+    startNewGameBtn,
+    startNewCharacterBtn,
+    loadCharOverlay,
+    loadCharList,
+    loadCharEmpty,
+    loadCharCancel,
+    deleteCharBtn,
+    newCharBtn,
+    deleteCharOverlay,
+    deleteCharCancel,
+    deleteCharConfirm,
+    loadCharacterPrefs,
+    loadCharacterList,
+    saveCharacterList,
+    getSaveKeyForCharId,
+    getActiveCharacterId,
+    setActiveCharacterId,
+    getStoredCharacterProfile,
+    getStoredSaveProfile,
+    formatSavedAtLabel,
+    saveCharacterPrefs,
+    refreshStartOverlay,
+    closeStartOverlay,
+    openStartOverlay,
+    startNewGame,
+    resetCharacter,
+    chatLine
   });
-
-  function applyCharacterProfileToPlayer(charProfile){
-    if (!charProfile) return;
-    player.name = String(charProfile.name || "Adventurer").slice(0, 14);
-    player.class = (charProfile.class && CLASS_DEFS[charProfile.class]) ? charProfile.class : "Warrior";
-    player.color = CLASS_DEFS[player.class].color;
-  }
-
-  function deleteCharacterById(charId){
-    if (!charId) return false;
-    const before = loadCharacterList();
-    const next = before.filter(c => c.id !== charId);
-    if (next.length === before.length) return false;
-
-    saveCharacterList(next);
-    try {
-      localStorage.removeItem(getSaveKeyForCharId(charId));
-    } catch {}
-
-    if (getActiveCharacterId() === charId){
-      setActiveCharacterId(next[0]?.id ?? null);
-    }
-    return true;
-  }
-
-  function renderLoadCharacterList(onLoad){
-    if (!loadCharList) return;
-    const chars = loadCharacterList();
-    loadCharList.innerHTML = "";
-
-    let withSaveCount = 0;
-    const activeId = getActiveCharacterId();
-
-    for (const c of chars){
-      const save = getStoredSaveProfile(c.id);
-      if (save) withSaveCount++;
-
-      const row = document.createElement("div");
-      row.className = "loadCharRow";
-
-      const meta = document.createElement("div");
-      meta.className = "loadCharMeta";
-      const title = document.createElement("div");
-      title.className = "loadCharTitle";
-      title.textContent = `${c.name} the ${c.class}${c.id === activeId ? " (Active)" : ""}`;
-      meta.appendChild(title);
-
-      const sub = document.createElement("div");
-      sub.className = "loadCharSub";
-      sub.textContent = save
-        ? `Level ${save.combatLevel} - Saved ${formatSavedAtLabel(save.savedAt)}`
-        : "No save found for this character";
-      meta.appendChild(sub);
-
-      const actions = document.createElement("div");
-      actions.className = "btnrow";
-
-      const loadBtn = document.createElement("button");
-      loadBtn.type = "button";
-      loadBtn.textContent = "Load";
-      loadBtn.disabled = !save;
-      loadBtn.addEventListener("click", () => onLoad(c.id));
-      actions.appendChild(loadBtn);
-
-      row.appendChild(meta);
-      row.appendChild(actions);
-      loadCharList.appendChild(row);
-    }
-
-    if (loadCharEmpty){
-      loadCharEmpty.style.display = (withSaveCount > 0) ? "none" : "";
-    }
-  }
-
-  function openLoadCharacterOverlay(onLoad){
-    if (!loadCharOverlay) return;
-    renderLoadCharacterList(onLoad);
-    loadCharOverlay.style.display = "flex";
-  }
-
-  if (loadCharCancel){
-    loadCharCancel.addEventListener("click", closeLoadCharOverlay);
-  }
-  if (loadCharOverlay){
-    loadCharOverlay.addEventListener("mousedown", (e) => {
-      if (e.target === loadCharOverlay) closeLoadCharOverlay();
-    });
-  }
 
   // ---------- Starting inventory + equipment ----------
   function applyStartingInventory(){
@@ -3238,17 +3700,6 @@ const BGM_KEY = "classic_bgm_v1";
 
     renderQuiver();
   }
-
-  // ---------- Delete character ----------
-  const deleteCharBtn = document.getElementById("deleteCharBtn");
-  const newCharBtn = document.getElementById("newCharBtn");
-
-  const deleteCharOverlay = document.getElementById("deleteCharOverlay");
-  const deleteCharCancel = document.getElementById("deleteCharCancel");
-  const deleteCharConfirm = document.getElementById("deleteCharConfirm");
-
-  function openDeleteConfirm(){ deleteCharOverlay.style.display="flex"; }
-  function closeDeleteConfirm(){ deleteCharOverlay.style.display="none"; }
 
   function clearZoneRuntime(zoneKey){
     const zone = getZoneState(zoneKey);
@@ -3374,6 +3825,14 @@ const BGM_KEY = "classic_bgm_v1";
     // Lower hall.
     carveRect(22, 25, 35, 34, 3);
 
+    // Sealed boss wing corridor and chamber (opened via quest progression).
+    carveRect(36, 29, 41, 30, 3);
+    carveRect(DUNGEON_WING_ROOM.x0, DUNGEON_WING_ROOM.y0, DUNGEON_WING_ROOM.x1, DUNGEON_WING_ROOM.y1, 3);
+
+    // Center pit and narrow crossing in the wing.
+    carveRect(46, 28, 50, 31, 1);
+    carveRect(48, 28, 48, 31, 5);
+
     // Side alcove.
     carveRect(17, 27, 21, 31, 3);
     carveRect(21, 28, 22, 29, 3);
@@ -3384,6 +3843,10 @@ const BGM_KEY = "classic_bgm_v1";
     // Rubble blockers for visual variety.
     carveRect(24, 30, 25, 31, 2);
     carveRect(32, 27, 33, 28, 2);
+
+    // Gate tiles always stay blocked; the player passes through by interacting with the gate.
+    map[DUNGEON_WING_GATE.y][DUNGEON_WING_GATE.x] = 4;
+    map[DUNGEON_WING_GATE_BOTTOM.y][DUNGEON_WING_GATE_BOTTOM.x] = 4;
   }
 
   function seedDungeonZone(options = {}){
@@ -3395,8 +3858,11 @@ const BGM_KEY = "classic_bgm_v1";
       for (const spot of DUNGEON_SOUTH_IRON_ROCK_SPAWNS) {
         placeResource("iron_rock", spot.x, spot.y);
       }
-      if (!interactables.some((it) => it.type === "ladder_up")) {
-        placeInteractable("ladder_up", DUNGEON_LADDER_UP.x, DUNGEON_LADDER_UP.y);
+      ensureInteractable("ladder_up", DUNGEON_LADDER_UP.x, DUNGEON_LADDER_UP.y);
+      ensureInteractable("sealed_gate", DUNGEON_WING_GATE.x, DUNGEON_WING_GATE.y, { open: false, segment: "top" });
+      ensureInteractable("sealed_gate", DUNGEON_WING_GATE_BOTTOM.x, DUNGEON_WING_GATE_BOTTOM.y, { open: false, segment: "bottom" });
+      for (const brazier of DUNGEON_WING_BRAZIERS){
+        ensureInteractable("brazier", brazier.x, brazier.y, { brazierId: brazier.id, lit: false });
       }
 
       if (forcePopulateMobs) mobs.length = 0;
@@ -3448,7 +3914,290 @@ const BGM_KEY = "classic_bgm_v1";
       for (const spot of DUNGEON_SOUTH_SKELETON_SPAWNS) {
         ensureMobSpawnSlot("skeleton", spot.x, spot.y);
       }
+
+      syncDungeonQuestState();
     });
+  }
+
+  function isInDungeonWing(x, y){
+    return (
+      x >= DUNGEON_WING_ROOM.x0 &&
+      y >= DUNGEON_WING_ROOM.y0 &&
+      x <= DUNGEON_WING_ROOM.x1 &&
+      y <= DUNGEON_WING_ROOM.y1
+    );
+  }
+
+  function setDungeonGateOpen(_open){
+    const zone = getZoneState(ZONE_KEYS.DUNGEON);
+    if (!zone?.map) return;
+    let changed = false;
+    for (const tilePos of [DUNGEON_WING_GATE, DUNGEON_WING_GATE_BOTTOM]){
+      if (!zone.map[tilePos.y]) continue;
+      if ((zone.map[tilePos.y][tilePos.x] | 0) !== 4){
+        zone.map[tilePos.y][tilePos.x] = 4;
+        changed = true;
+      }
+    }
+    if (changed && getActiveZone() === ZONE_KEYS.DUNGEON) rebuildNavigation();
+  }
+
+  function syncDungeonQuestState(){
+    const secondId = "ashes_under_the_keep";
+    const gateObjectiveId = "enter_wing";
+    const brazierObjectiveId = "light_brazier";
+    const wardenObjectiveId = "defeat_warden";
+    const secondStarted = isQuestStarted(secondId);
+    const secondCompleted = isQuestCompleted(secondId);
+    const wardenDefeated = isQuestObjectiveComplete(secondId, wardenObjectiveId);
+
+    const gateOpen = secondCompleted || isQuestObjectiveComplete(secondId, gateObjectiveId);
+    setDungeonGateOpen(gateOpen);
+
+    const dungeonZone = getZoneState(ZONE_KEYS.DUNGEON);
+    if (!dungeonZone) return;
+
+    for (const gateIt of dungeonZone.interactables){
+      if (gateIt.type !== "sealed_gate") continue;
+      gateIt.open = gateOpen;
+    }
+
+    for (const brazier of DUNGEON_WING_BRAZIERS){
+      const token = `brazier:${brazier.id}`;
+      const it = dungeonZone.interactables.find((row) =>
+        row.type === "brazier" &&
+        row.x === brazier.x &&
+        row.y === brazier.y &&
+        String(row.brazierId || "") === String(brazier.id)
+      );
+      if (!it) continue;
+      if (!wardenDefeated){
+        it.lit = hasQuestObjectiveToken(secondId, brazierObjectiveId, token);
+      }
+    }
+
+    const braziersComplete = DUNGEON_WING_BRAZIERS.every((brazier) => {
+      if (!wardenDefeated){
+        return hasQuestObjectiveToken(secondId, brazierObjectiveId, `brazier:${brazier.id}`);
+      }
+      const it = dungeonZone.interactables.find((row) =>
+        row.type === "brazier" &&
+        row.x === brazier.x &&
+        row.y === brazier.y &&
+        String(row.brazierId || "") === String(brazier.id)
+      );
+      return !!it?.lit;
+    });
+    const hasWingFixtures = dungeonZone.interactables.some((it) => it.type === "sealed_gate");
+    const shouldSpawnWarden = hasWingFixtures && secondStarted && gateOpen && braziersComplete;
+
+    const warden = dungeonZone.mobs.find((m) => String(m?.type || "") === "skeleton_warden");
+    if (shouldSpawnWarden) {
+      if (!warden){
+        withZone(ZONE_KEYS.DUNGEON, () => {
+          placeMob("skeleton_warden", DUNGEON_WARDEN_SPAWN.x, DUNGEON_WARDEN_SPAWN.y);
+        });
+        if (getActiveZone() === ZONE_KEYS.DUNGEON) {
+          chatLine(`<span class="warn">A heavy rattle rolls through the wing. The Skeleton Warden awakens.</span>`);
+        }
+      } else if (warden.alive) {
+        warden.homeX = DUNGEON_WARDEN_SPAWN.x;
+        warden.homeY = DUNGEON_WARDEN_SPAWN.y;
+      }
+    }
+  }
+
+  function resetDungeonWardenBraziers(){
+    const dungeonZone = getZoneState(ZONE_KEYS.DUNGEON);
+    if (!dungeonZone) return;
+    for (const it of dungeonZone.interactables){
+      if (it.type === "brazier") it.lit = false;
+    }
+  }
+
+  function handleMobDefeated(mob){
+    if (String(mob?.type || "") !== "skeleton_warden") return;
+
+    const dungeonZone = getZoneState(ZONE_KEYS.DUNGEON);
+    if (dungeonZone){
+      const idx = dungeonZone.mobs.indexOf(mob);
+      if (idx >= 0) dungeonZone.mobs.splice(idx, 1);
+    }
+
+    const secondId = "ashes_under_the_keep";
+    if (isQuestStarted(secondId) && !isQuestCompleted(secondId)){
+      const row = getQuestProgress(secondId);
+      const def = QUESTS_BY_ID.get(secondId);
+      if (row && def){
+        const enterObjectiveId = "enter_wing";
+        const brazierObjectiveId = "light_brazier";
+        const wardenObjectiveId = "defeat_warden";
+        const enterObjective = (def.objectives || []).find((o) => String(o?.id || "") === enterObjectiveId);
+        const brazierObjective = (def.objectives || []).find((o) => String(o?.id || "") === brazierObjectiveId);
+        const wardenObjective = (def.objectives || []).find((o) => String(o?.id || "") === wardenObjectiveId);
+
+        if (row.progress && typeof row.progress === "object"){
+          row.progress[enterObjectiveId] = Math.max(
+            getQuestObjectiveTarget(enterObjective || { target: 1 }),
+            row.progress[enterObjectiveId] | 0
+          );
+          row.progress[wardenObjectiveId] = Math.max(
+            getQuestObjectiveTarget(wardenObjective || { target: 1 }),
+            row.progress[wardenObjectiveId] | 0
+          );
+        }
+
+        if (!row.tokens || typeof row.tokens !== "object") row.tokens = Object.create(null);
+        if (!row.tokens[brazierObjectiveId] || typeof row.tokens[brazierObjectiveId] !== "object") {
+          row.tokens[brazierObjectiveId] = Object.create(null);
+        }
+        for (const brazier of DUNGEON_WING_BRAZIERS){
+          row.tokens[brazierObjectiveId][`brazier:${brazier.id}`] = 1;
+        }
+        if (row.progress && typeof row.progress === "object") {
+          const litCount = DUNGEON_WING_BRAZIERS.reduce((n, brazier) => {
+            const token = `brazier:${brazier.id}`;
+            return n + (row.tokens[brazierObjectiveId]?.[token] ? 1 : 0);
+          }, 0);
+          row.progress[brazierObjectiveId] = Math.max(
+            Math.min(getQuestObjectiveTarget(brazierObjective || { target: DUNGEON_WING_BRAZIERS.length }), litCount),
+            row.progress[brazierObjectiveId] | 0
+          );
+        }
+      }
+    }
+
+    resetDungeonWardenBraziers();
+    if (isQuestReadyToComplete(secondId)) completeQuest(secondId);
+    chatLine(`<span class="muted">As the Warden collapses, the ritual braziers gutter out.</span>`);
+    syncDungeonQuestState();
+    renderQuests();
+  }
+
+  function handleUseSealedGate(gate){
+    const secondId = "ashes_under_the_keep";
+    const gateObjectiveId = "enter_wing";
+    const gateAlreadyUnlocked = (
+      !!gate?.open ||
+      isQuestCompleted(secondId) ||
+      isQuestObjectiveComplete(secondId, gateObjectiveId)
+    );
+
+    if (!gateAlreadyUnlocked && !hasItem("warden_key_fragment")){
+      chatLine(`<span class="warn">The lock rejects you. You need the Warden Key Fragment.</span>`);
+      return;
+    }
+
+    const gy = Number.isFinite(gate?.y) ? (gate.y | 0) : DUNGEON_WING_GATE.y;
+    const fromLeft = (player.x <= DUNGEON_WING_GATE.x);
+    const candidateY = [gy, (gy === DUNGEON_WING_GATE.y ? DUNGEON_WING_GATE_BOTTOM.y : DUNGEON_WING_GATE.y)];
+    let moved = false;
+    for (const y of candidateY){
+      const tx = fromLeft ? (DUNGEON_WING_GATE.x + 1) : (DUNGEON_WING_GATE.x - 1);
+      if (teleportPlayerTo(tx, y, { requireWalkable: true })){
+        moved = true;
+        break;
+      }
+    }
+
+    if (!moved){
+      chatLine(`<span class="warn">The gate won't budge from this angle.</span>`);
+      return;
+    }
+
+    if (!gateAlreadyUnlocked){
+      removeItemsFromInventory("warden_key_fragment", 1);
+      chatLine(`<span class="good">Your key fragment resonates, then crumbles. The gate unlocks for good.</span>`);
+
+      if (isQuestStarted(secondId) && !isQuestCompleted(secondId)){
+        trackQuestEvent({
+          type: "manual",
+          questId: secondId,
+          objectiveId: gateObjectiveId,
+          qty: 1,
+          token: "wing_gate_pass"
+        });
+      } else {
+        const row = getQuestProgress(secondId);
+        const def = QUESTS_BY_ID.get(secondId);
+        const gateObjective = (def?.objectives || []).find((o) => String(o?.id || "") === gateObjectiveId);
+        const target = getQuestObjectiveTarget(gateObjective || { target: 1 });
+        if (row?.progress) {
+          row.progress[gateObjectiveId] = Math.max(target, row.progress[gateObjectiveId] | 0);
+          if (!row.tokens || typeof row.tokens !== "object") row.tokens = Object.create(null);
+          if (!row.tokens[gateObjectiveId] || typeof row.tokens[gateObjectiveId] !== "object") {
+            row.tokens[gateObjectiveId] = Object.create(null);
+          }
+          row.tokens[gateObjectiveId].wing_gate_pass = 1;
+        }
+      }
+    } else {
+      chatLine(`<span class="good">The gate remains open.</span>`);
+    }
+    syncDungeonQuestState();
+  }
+
+  function handleUseDungeonBrazier(brazier){
+    const secondId = "ashes_under_the_keep";
+    const objectiveId = "light_brazier";
+    const wardenDefeated = isQuestObjectiveComplete(secondId, "defeat_warden");
+    if (!isQuestStarted(secondId)){
+      chatLine(`<span class="muted">Cold ash. It seems tied to some unfinished ritual.</span>`);
+      return;
+    }
+    if (!isQuestObjectiveComplete(secondId, "enter_wing")){
+      chatLine(`<span class="muted">You should unseal the gate before disturbing the braziers.</span>`);
+      return;
+    }
+
+    const brazierId = String(brazier?.brazierId || "");
+    const token = `brazier:${brazierId}`;
+    if (!brazierId){
+      chatLine(`<span class="muted">The brazier is broken and cannot be lit.</span>`);
+      return;
+    }
+
+    if (!wardenDefeated && hasQuestObjectiveToken(secondId, objectiveId, token)){
+      chatLine(`<span class="muted">That brazier is already burning.</span>`);
+      return;
+    }
+    if (wardenDefeated && brazier?.lit){
+      chatLine(`<span class="muted">That brazier is already burning.</span>`);
+      return;
+    }
+
+    chatLine(`<span class="good">You rekindle the brazier. Old runes flare to life.</span>`);
+    if (wardenDefeated){
+      if (brazier) brazier.lit = true;
+    } else {
+      trackQuestEvent({
+        type: "manual",
+        questId: secondId,
+        objectiveId,
+        qty: 1,
+        token
+      });
+    }
+    if (brazier) brazier.lit = true;
+    syncDungeonQuestState();
+  }
+
+  function updateDungeonQuestTriggers(){
+    const secondId = "ashes_under_the_keep";
+    if (getActiveZone() !== ZONE_KEYS.DUNGEON) return;
+    if (!isQuestStarted(secondId) || isQuestCompleted(secondId)) return;
+    if (isQuestObjectiveComplete(secondId, "enter_wing")) return;
+    if (!isInDungeonWing(player.x, player.y)) return;
+
+    chatLine(`<span class="muted">You step into the sealed wing. The air turns ash-cold.</span>`);
+    trackQuestEvent({
+      type: "manual",
+      questId: secondId,
+      objectiveId: "enter_wing",
+      qty: 1,
+      token: "wing_entry"
+    });
+    syncDungeonQuestState();
   }
 
   function useLadder(direction){
@@ -3521,6 +4270,7 @@ const BGM_KEY = "classic_bgm_v1";
 
     equipment.weapon = null;
     equipment.offhand = null;
+    resetQuestProgress();
 
     setCurrentZone(ZONE_KEYS.OVERWORLD, { keepAction: true, keepPath: true, keepTarget: true, syncCamera: false });
     clearAllZoneRuntime();
@@ -3539,6 +4289,7 @@ const BGM_KEY = "classic_bgm_v1";
     applyWindowVis();
 
     renderSkills();
+    renderQuests();
     renderInv();
     renderBank();
     renderEquipment();
@@ -3546,28 +4297,6 @@ const BGM_KEY = "classic_bgm_v1";
     renderHPHUD();
     updateCamera();
   }
-
-  deleteCharBtn.onclick = openDeleteConfirm;
-  deleteCharCancel.onclick = closeDeleteConfirm;
-  deleteCharOverlay.addEventListener("mousedown",(e)=>{ if (e.target === deleteCharOverlay) closeDeleteConfirm(); });
-  deleteCharConfirm.onclick = () => {
-    closeDeleteConfirm();
-    resetCharacter();
-    refreshStartOverlay();
-    const next = getStoredCharacterProfile();
-    if (next){
-      applyCharacterProfileToPlayer(next);
-      openStartOverlay();
-    } else {
-      openCharCreate(true, true);
-    }
-    chatLine(`<span class="warn">Character deleted.</span>`);
-  };
-
-  newCharBtn.onclick = () => {
-    refreshStartOverlay();
-    openCharCreate(true, true);
-  };
 
   // ---------- World + flow ----------
   function startNewGame(){
@@ -3583,6 +4312,7 @@ initWorldSeed();
     clearSlots(bank);
     quiver.wooden_arrow = 0;
     wallet.gold = 0;
+    resetQuestProgress();
     setCurrentZone(ZONE_KEYS.OVERWORLD, { keepAction: true, keepPath: true, keepTarget: true, syncCamera: false });
     clearAllZoneRuntime();
 
@@ -3612,6 +4342,7 @@ player.invulnUntil = now() + 1200;
     setZoom(ZOOM_DEFAULT);
 
     renderSkills();
+    renderQuests();
     renderInv();
     renderBank();
     renderEquipment();
@@ -3619,48 +4350,6 @@ player.invulnUntil = now() + 1200;
     renderHPHUD();
     updateCamera();
   }
-
-  if (startNewGameBtn){
-    startNewGameBtn.onclick = () => {
-      const charProfile = getStoredCharacterProfile();
-      if (!charProfile){
-        closeStartOverlay();
-        openCharCreate(true, true);
-        return;
-      }
-
-      applyCharacterProfileToPlayer(charProfile);
-
-      closeStartOverlay();
-      startNewGame();
-      chatLine(`<span class="good">Starting a new game for ${player.name} the ${player.class}.</span>`);
-    };
-  }
-
-  if (startNewCharacterBtn){
-    startNewCharacterBtn.onclick = () => {
-      closeStartOverlay();
-      openCharCreate(true, true);
-    };
-  }
-
-  charStart.onclick = () => {
-    player.name = (charName.value || "Adventurer").trim().slice(0,14) || "Adventurer";
-    player.class = characterState.selectedClass;
-    player.color = CLASS_DEFS[characterState.selectedClass].color;
-
-    const created = saveCharacterPrefs({ createNew: createNewCharacterPending });
-    if (created?.id){
-      setActiveCharacterId(created.id);
-    }
-    createNewCharacterPending = false;
-    refreshStartOverlay();
-    closeStartOverlay();
-    charOverlay.style.display="none";
-
-    startNewGame();
-    chatLine(`<span class="good">Welcome, ${player.name} the ${player.class}.</span>`);
-  };
 
   // ---------- Entity lookup ----------
   const getEntityAt = createEntityLookup({
@@ -3799,7 +4488,12 @@ player.invulnUntil = now() + 1200;
     meleeState,
     equipment,
     addGold,
-    onUseLadder: useLadder
+    onUseLadder: useLadder,
+    onQuestEvent: trackQuestEvent,
+    onTalkQuestNpc: handleQuestNpcTalk,
+    onUseSealedGate: handleUseSealedGate,
+    onUseDungeonBrazier: handleUseDungeonBrazier,
+    onMobDefeated: handleMobDefeated
   }).ensureWalkIntoRangeAndAct;
 
 
@@ -3822,6 +4516,16 @@ player.invulnUntil = now() + 1200;
       const b=interactables[t.index];
       if (!b) return false;
       return inRangeOfTile(b.x,b.y,1.1);
+    }
+    if (t.kind==="quest_npc"){
+      const n=interactables[t.index];
+      if (!n) return false;
+      return inRangeOfTile(n.x,n.y,1.1);
+    }
+    if (t.kind==="sealed_gate" || t.kind==="brazier"){
+      const it=interactables[t.index];
+      if (!it) return false;
+      return inRangeOfTile(it.x,it.y,1.1);
     }
     if (t.kind==="ladder_down" || t.kind==="ladder_up"){
       const l = interactables[t.index];
@@ -4418,12 +5122,25 @@ if (item.ammo){
     if (!Number.isFinite(m._faceX)) m._faceX = 1;
     m._prevDrawCx = baseCx;
     const face = m._faceX;
+    const isWarden = (m.type === "skeleton_warden");
 
     const t = now();
+    const emberPulse = isWarden ? (0.45 + 0.55 * Math.sin(t * 0.018 + m.x * 0.73 + m.y * 0.41)) : 0;
     const bob = Math.sin(t*0.009 + m.x*0.73 + m.y*0.57) * 0.55;
     const armSwing = Math.sin(t*0.013 + m.x*0.62 + m.y*0.49) * 1.5;
     const cx = baseCx;
     const cy = baseCy + bob;
+
+    const boneLeg = isWarden ? "#59626d" : "#d6dde6";
+    const boneLegHi = isWarden ? "#717b88" : "#f3f6fa";
+    const boneLegLow = isWarden ? "#454f5c" : "#c4ccd7";
+    const boneRib = isWarden ? "#64707d" : "#e5ebf3";
+    const boneArm = isWarden ? "#5f6976" : "#d8e0ea";
+    const boneArmLow = isWarden ? "#4b5562" : "#c6cfda";
+    const boneSkull = isWarden ? "#727d8b" : "#ecf1f7";
+    const boneJaw = isWarden ? "#606b78" : "#d5dde8";
+    const boneTooth = isWarden ? "#a4aebb" : "#f8fafc";
+    const hpBar = isWarden ? "#f97316" : "#fb7185";
 
     ctx.save();
 
@@ -4433,7 +5150,7 @@ if (item.ammo){
     ctx.fill();
 
     // Dark silhouette behind bones to reduce cartoon feel.
-    ctx.fillStyle = "rgba(15,23,42,.30)";
+    ctx.fillStyle = isWarden ? "rgba(7,8,11,.50)" : "rgba(15,23,42,.30)";
     ctx.beginPath();
     ctx.moveTo(cx - 7.0, cy + 10.8);
     ctx.lineTo(cx - 6.2, cy + 0.2);
@@ -4444,19 +5161,30 @@ if (item.ammo){
     ctx.closePath();
     ctx.fill();
 
+    if (isWarden){
+      // Smoky aura to make the warden read as charred/corrupted.
+      ctx.fillStyle = `rgba(8,8,10,${0.20 + 0.12 * emberPulse})`;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 1.2, 9.5, 12.2, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx + face * 1.0, cy - 6.4, 6.1, 7.3, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+
     // Legs (taller stance)
-    ctx.fillStyle = "#d6dde6";
+    ctx.fillStyle = boneLeg;
     ctx.fillRect(cx - 5.2, cy + 7.2, 2.5, 5.2);
     ctx.fillRect(cx + 2.7, cy + 7.2, 2.5, 5.2);
-    ctx.fillStyle = "#f3f6fa";
+    ctx.fillStyle = boneLegHi;
     ctx.fillRect(cx - 5.2, cy + 9.0, 2.5, 1.1);
     ctx.fillRect(cx + 2.7, cy + 9.0, 2.5, 1.1);
-    ctx.fillStyle = "#c4ccd7";
+    ctx.fillStyle = boneLegLow;
     ctx.fillRect(cx - 5.7, cy + 12.0, 3.5, 1.3);
     ctx.fillRect(cx + 2.2, cy + 12.0, 3.5, 1.3);
 
     // Spine + ribs
-    ctx.fillStyle = "#e5ebf3";
+    ctx.fillStyle = boneRib;
     ctx.fillRect(cx - 0.9, cy - 3.1, 1.8, 11.6);
     ctx.fillRect(cx - 5.9, cy - 0.9, 11.8, 1.2);
     ctx.fillRect(cx - 5.1, cy + 1.5, 10.2, 1.1);
@@ -4469,18 +5197,18 @@ if (item.ammo){
     // Arms (longer forearms to make it lankier)
     const leftFore = armSwing * 0.22;
     const rightFore = armSwing * 0.16;
-    ctx.fillStyle = "#d8e0ea";
+    ctx.fillStyle = boneArm;
     ctx.fillRect(cx - 8.0, cy + 0.6, 1.9, 4.8);
     ctx.fillRect(cx + 6.1, cy + 0.6, 1.9, 4.8);
     ctx.fillRect(cx - 8.4, cy + 4.7 + leftFore, 2.0, 4.2);
     ctx.fillRect(cx + 6.4, cy + 4.7 - rightFore, 2.0, 4.2);
-    ctx.fillStyle = "#c6cfda";
+    ctx.fillStyle = boneArmLow;
     ctx.fillRect(cx - 8.8, cy + 8.4 + leftFore, 2.4, 1.2);
     ctx.fillRect(cx + 6.3, cy + 8.4 - rightFore, 2.4, 1.2);
 
     // Skull
     const headX = cx + face*2.0;
-    ctx.fillStyle = "#ecf1f7";
+    ctx.fillStyle = boneSkull;
     ctx.beginPath();
     ctx.ellipse(headX, cy - 5.2, 4.9, 5.8, 0, 0, Math.PI*2);
     ctx.fill();
@@ -4521,7 +5249,7 @@ if (item.ammo){
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = "#d5dde8";
+    ctx.fillStyle = boneJaw;
     ctx.fillRect(headX - 2.5, cy - 1.9, 5.0, 2.0);
     ctx.strokeStyle = "rgba(0,0,0,.5)";
     ctx.beginPath();
@@ -4530,15 +5258,36 @@ if (item.ammo){
     ctx.moveTo(headX - 2.1, cy - 0.7);
     ctx.lineTo(headX + 2.0, cy - 1.1);
     ctx.stroke();
-    ctx.fillStyle = "#f8fafc";
+    ctx.fillStyle = boneTooth;
     ctx.fillRect(headX - 2.0, cy - 1.4, 0.65, 0.85);
     ctx.fillRect(headX - 0.75, cy - 1.3, 0.65, 0.85);
     ctx.fillRect(headX + 0.45, cy - 1.4, 0.65, 0.85);
 
+    if (isWarden){
+      // Ember eyes + scorched cracks for a unique charred silhouette.
+      ctx.fillStyle = `rgba(249,115,22,${0.52 + 0.32 * emberPulse})`;
+      ctx.beginPath();
+      ctx.ellipse(headX - face*1.9, cy - 5.5, 0.95, 0.75, 0, 0, Math.PI*2);
+      ctx.ellipse(headX + face*1.8, cy - 5.5, 0.95, 0.75, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(251,146,60,${0.26 + 0.22 * emberPulse})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(headX - 2.8, cy - 6.7);
+      ctx.lineTo(headX - 1.2, cy - 5.4);
+      ctx.moveTo(headX + 2.6, cy - 6.8);
+      ctx.lineTo(headX + 1.1, cy - 5.6);
+      ctx.moveTo(cx - 3.8, cy + 1.0);
+      ctx.lineTo(cx - 1.2, cy + 2.4);
+      ctx.moveTo(cx + 3.8, cy + 1.0);
+      ctx.lineTo(cx + 1.2, cy + 2.4);
+      ctx.stroke();
+    }
+
     // HP bar
     ctx.fillStyle = "rgba(0,0,0,.56)";
     ctx.fillRect(px+6, py+3, TILE-12, 5);
-    ctx.fillStyle = "#fb7185";
+    ctx.fillStyle = hpBar;
     const w = clamp((m.hp/m.maxHp)*(TILE-12), 0, TILE-12);
     ctx.fillRect(px+6, py+3, w, 5);
     ctx.fillStyle = "rgba(255,255,255,.25)";
@@ -4554,7 +5303,7 @@ if (item.ammo){
       if (m.x<startX-1 || m.x>endX+1 || m.y<startY-1 || m.y>endY+1) continue;
       if (m.type==="rat") drawRat(m);
       else if (m.type==="goblin") drawGoblin(m);
-      else if (m.type==="skeleton") drawSkeleton(m);
+      else if (m.type==="skeleton" || m.type==="skeleton_warden") drawSkeleton(m);
       else drawRat(m);
     }
   }
@@ -4650,6 +5399,251 @@ if (item.ammo){
     ctx.beginPath();
     ctx.arc(cx + 8.4, cy + 5.1, 0.8, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+  }
+
+  function drawQuestNpc(x, y, showMarker = true){
+    const t = now();
+    const cx = x * TILE + TILE / 2;
+    const cy = y * TILE + TILE / 2 + Math.sin(t * 0.006 + x * 0.8 + y * 0.6) * 0.3;
+    ctx.save();
+
+    ctx.fillStyle = "rgba(0,0,0,.28)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 13, 9.5, 4.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#111827";
+    ctx.fillRect(cx - 8, cy + 10, 6, 3);
+    ctx.fillRect(cx + 2, cy + 10, 6, 3);
+
+    ctx.fillStyle = "rgba(30,58,58,.92)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 5.8, 7.5, 8.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.45)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 5.8, 7.5, 8.9, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const headY = cy - 6;
+    ctx.fillStyle = "#f2c9a0";
+    ctx.beginPath();
+    ctx.arc(cx, headY, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.45)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, headY, 7, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(0,0,0,.65)";
+    ctx.beginPath();
+    ctx.arc(cx - 2.1, headY - 1.1, 1, 0, Math.PI * 2);
+    ctx.arc(cx + 2.1, headY - 1.1, 1, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(251,191,36,.95)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 5, cy + 7);
+    ctx.lineTo(cx + 5, cy + 7);
+    ctx.stroke();
+
+    if (showMarker){
+      // Hovering "!" marker to signal quest giver.
+      const markY = cy - 18 + Math.sin(t * 0.01 + x + y) * 1.4;
+      ctx.fillStyle = "rgba(251,191,36,.95)";
+      ctx.fillRect(cx - 1.3, markY - 6, 2.6, 6.5);
+      ctx.fillRect(cx - 1.7, markY + 1.5, 3.4, 3.4);
+      ctx.strokeStyle = "rgba(0,0,0,.45)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cx - 1.3, markY - 6, 2.6, 6.5);
+      ctx.strokeRect(cx - 1.7, markY + 1.5, 3.4, 3.4);
+    }
+
+    ctx.restore();
+  }
+
+  function drawSealedGate(x, y, open = false, segment = "single"){
+    const px = x * TILE;
+    const py = y * TILE;
+    const part = String(segment || "").toLowerCase();
+    const isTop = part === "top";
+    const isBottom = part === "bottom";
+    const isSingle = !isTop && !isBottom;
+    // Keep the gate flush to wall tiles north/south while preserving a small inner bevel.
+    const outerTopPad = 0;
+    const outerBottomPad = 0;
+    const topPad = (isTop || isSingle) ? 1 : 0;
+    const bottomPad = (isBottom || isSingle) ? 1 : 0;
+    const gateY = py + topPad;
+    const gateH = Math.max(8, TILE - topPad - bottomPad);
+    const seamX = px + Math.floor(TILE / 2);
+
+    // Width tuning: keep the gate narrower than a full tile so wall is visible left/right.
+    const frameW = 18;
+    const frameX = px + Math.floor((TILE - frameW) / 2);
+    const doorW = 10;
+    const doorX = seamX - Math.floor(doorW / 2);
+    const leftLeafX = doorX;
+    const leftLeafW = Math.max(3, Math.floor((doorW - 1) / 2));
+    const rightLeafX = seamX + 1;
+    const rightLeafW = Math.max(3, doorW - leftLeafW - 1);
+    ctx.save();
+
+    // Paint dungeon floor under the whole gate so it reads as a floor-mounted fixture.
+    const floorBase = ((x + y) % 2 === 0) ? "#2e353d" : "#2a3138";
+    ctx.fillStyle = floorBase;
+    ctx.fillRect(px, py, TILE, TILE);
+    ctx.strokeStyle = "rgba(148,163,184,.12)";
+    ctx.beginPath();
+    ctx.moveTo(px + 1, py + 16);
+    ctx.lineTo(px + TILE - 1, py + 16);
+    ctx.moveTo(px + 16, py + 1);
+    ctx.lineTo(px + 16, py + TILE - 1);
+    ctx.stroke();
+
+    // Steel surround, connected across top/bottom segments.
+    ctx.fillStyle = "#3d4856";
+    ctx.fillRect(frameX, py + outerTopPad, frameW, TILE - outerTopPad - outerBottomPad);
+    ctx.fillStyle = "#566375";
+    ctx.fillRect(frameX + 1, py + topPad, frameW - 2, TILE - topPad - bottomPad + 1);
+    ctx.fillStyle = "#738196";
+    ctx.fillRect(frameX + 1, gateY, 2, gateH);
+    ctx.fillRect(frameX + frameW - 3, gateY, 2, gateH);
+    ctx.fillStyle = "#2f3947";
+    ctx.fillRect(frameX + 2, gateY, 1, gateH);
+    ctx.fillRect(frameX + frameW - 3, gateY, 1, gateH);
+
+    if (isTop || isSingle){
+      ctx.fillStyle = "#69788d";
+      ctx.fillRect(doorX - 1, Math.max(py + 1, gateY - 1), doorW + 2, 2);
+      ctx.fillStyle = "rgba(226,232,240,.20)";
+      ctx.fillRect(doorX - 1, Math.max(py + 1, gateY - 1), doorW + 2, 1);
+    }
+    if (isBottom || isSingle){
+      ctx.fillStyle = "#3b4555";
+      ctx.fillRect(doorX - 1, gateY + gateH - 1, doorW + 2, 2);
+      ctx.fillStyle = "rgba(0,0,0,.24)";
+      ctx.fillRect(doorX - 1, gateY + gateH, doorW + 2, 1);
+    }
+
+    if (!open){
+      // Closed double leaves.
+      ctx.fillStyle = "#687789";
+      ctx.fillRect(leftLeafX, gateY, leftLeafW, gateH);
+      ctx.fillRect(rightLeafX, gateY, rightLeafW, gateH);
+      ctx.fillStyle = "#8f9daf";
+      ctx.fillRect(leftLeafX, gateY, leftLeafW, 1);
+      ctx.fillRect(rightLeafX, gateY, rightLeafW, 1);
+      if (!isTop){
+        ctx.fillStyle = "#4a5667";
+        ctx.fillRect(leftLeafX, gateY + gateH - 1, leftLeafW, 1);
+        ctx.fillRect(rightLeafX, gateY + gateH - 1, rightLeafW, 1);
+      }
+
+      // Steel panel seams.
+      ctx.fillStyle = "rgba(15,23,42,.35)";
+      ctx.fillRect(leftLeafX + 2, gateY + 1, 1, gateH - 2);
+      ctx.fillRect(rightLeafX + rightLeafW - 3, gateY + 1, 1, gateH - 2);
+      ctx.fillStyle = "rgba(226,232,240,.12)";
+      ctx.fillRect(leftLeafX + leftLeafW - 2, gateY + 1, 1, gateH - 2);
+      ctx.fillRect(rightLeafX + 1, gateY + 1, 1, gateH - 2);
+
+      // Center join post so both doors feel connected.
+      ctx.fillStyle = "#a8b4c2";
+      ctx.fillRect(seamX - 1, gateY, 2, gateH);
+      ctx.fillStyle = "rgba(30,41,59,.55)";
+      ctx.fillRect(seamX - 1, gateY, 1, gateH);
+
+      // Lock plate on lower segment.
+      if (isBottom || isSingle){
+        const lockY = gateY + Math.floor(gateH / 2) - 2;
+        ctx.fillStyle = "#b2bfcc";
+        ctx.fillRect(seamX - 2, lockY, 4, 4);
+        ctx.fillStyle = "#7c8a99";
+        ctx.fillRect(seamX - 1, lockY - 1, 2, 1);
+      }
+
+      // Rivets.
+      ctx.fillStyle = "#9eacbb";
+      if (!isBottom){
+        ctx.fillRect(frameX + 1, gateY + 2, 2, 2);
+        ctx.fillRect(frameX + frameW - 3, gateY + 2, 2, 2);
+      }
+      if (!isTop){
+        ctx.fillRect(frameX + 1, gateY + gateH - 4, 2, 2);
+        ctx.fillRect(frameX + frameW - 3, gateY + gateH - 4, 2, 2);
+      }
+    } else {
+      // Open center passage with leaves pulled to the sides.
+      const openingHalf = 3;
+      const openingX = seamX - openingHalf;
+      const openingW = openingHalf * 2;
+      ctx.fillStyle = "#10161e";
+      ctx.fillRect(openingX, gateY, openingW, gateH);
+      ctx.fillStyle = "rgba(0,0,0,.4)";
+      ctx.fillRect(openingX + 1, gateY + 1, openingW - 2, gateH - 2);
+
+      const sideLeafW = 3;
+      ctx.fillStyle = "#647384";
+      ctx.fillRect(leftLeafX, gateY, sideLeafW, gateH);
+      ctx.fillRect(rightLeafX + rightLeafW - sideLeafW, gateY, sideLeafW, gateH);
+      ctx.fillStyle = "#8795a7";
+      ctx.fillRect(leftLeafX, gateY, sideLeafW, 1);
+      ctx.fillRect(rightLeafX + rightLeafW - sideLeafW, gateY, sideLeafW, 1);
+      if (!isTop){
+        ctx.fillStyle = "#4b5768";
+        ctx.fillRect(leftLeafX, gateY + gateH - 1, sideLeafW, 1);
+        ctx.fillRect(rightLeafX + rightLeafW - sideLeafW, gateY + gateH - 1, sideLeafW, 1);
+      }
+
+      // Cool steel edge glow in the open seam.
+      ctx.fillStyle = "rgba(148,163,184,.24)";
+      ctx.fillRect(openingX + 1, gateY + 1, 1, gateH - 2);
+      ctx.fillRect(openingX + openingW - 2, gateY + 1, 1, gateH - 2);
+      if (!isBottom){
+        ctx.fillStyle = "rgba(203,213,225,.18)";
+        ctx.fillRect(openingX + 1, gateY + 1, openingW - 2, 1);
+      }
+      if (!isTop){
+        ctx.fillStyle = "rgba(148,163,184,.18)";
+        ctx.fillRect(openingX + 1, gateY + gateH - 2, openingW - 2, 1);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawDungeonBrazier(x, y, lit = false){
+    const cx = x * TILE + TILE / 2;
+    const cy = y * TILE + TILE / 2;
+    const t = now();
+    ctx.save();
+
+    ctx.fillStyle = "#374151";
+    ctx.fillRect(cx - 5, cy + 3, 10, 3);
+    ctx.fillStyle = "#1f2937";
+    ctx.fillRect(cx - 6, cy + 6, 12, 2);
+
+    if (lit){
+      const flick = 0.8 + 0.2 * Math.sin(t * 0.02 + x * 0.9 + y * 0.6);
+      ctx.fillStyle = `rgba(251,191,36,${0.75 * flick})`;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 1.5, 4.6, 5.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(249,115,22,${0.85 * flick})`;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 3.2, 3, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = "rgba(107,114,128,.9)";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 1, 3.6, 2.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     ctx.restore();
   }
 
@@ -5373,6 +6367,9 @@ if (it.type === "fish"){
 
 
 if (it.type==="vendor") drawVendorNpc(it.x, it.y);
+if (it.type==="quest_npc") drawQuestNpc(it.x, it.y, npcHasPendingQuestMarker(it.npcId));
+if (it.type==="sealed_gate") drawSealedGate(it.x, it.y, !!it.open, it.segment || "single");
+if (it.type==="brazier") drawDungeonBrazier(it.x, it.y, !!it.lit);
 
     }
   }
@@ -6012,6 +7009,24 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
   opts.push({type:"sep"});
   opts.push({label:"Walk here", onClick:walkHere});
 
+} else if (ent?.kind==="quest_npc"){
+  opts.push({label:`Talk-to ${ent.label ?? "Quartermaster"}`, onClick:()=>beginInteraction(ent)});
+  opts.push({label:`Examine ${ent.label ?? "Quartermaster"}`, onClick:()=>examineEntity(ent)});
+  opts.push({type:"sep"});
+  opts.push({label:"Walk here", onClick:walkHere});
+
+} else if (ent?.kind==="sealed_gate"){
+  opts.push({label:(ent.open ? "Pass Gate" : "Open Sealed Gate"), onClick:()=>beginInteraction(ent)});
+  opts.push({label:"Examine Gate", onClick:()=>examineEntity(ent)});
+  opts.push({type:"sep"});
+  opts.push({label:"Walk here", onClick:walkHere});
+
+} else if (ent?.kind==="brazier"){
+  opts.push({label:(ent.lit ? "Inspect Brazier" : "Light Brazier"), onClick:()=>beginInteraction(ent)});
+  opts.push({label:"Examine Brazier", onClick:()=>examineEntity(ent)});
+  opts.push({type:"sep"});
+  opts.push({label:"Walk here", onClick:walkHere});
+
 } else if (ent?.kind==="furnace"){
   opts.push({label:"Use Furnace", onClick:()=>beginInteraction(ent)});
   opts.push({label:"Examine Furnace", onClick:()=>examineEntity(ent)});
@@ -6094,6 +7109,8 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
     MAX_BANK,
     setZoom,
     manualDropLocks,
+    getQuestSnapshot,
+    applyQuestSnapshot,
     onZoneChanged: () => {
       rebuildNavigation();
       updateCamera();
@@ -6101,6 +7118,7 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
     renderAfterLoad: () => {
       seedDungeonZone({ forcePopulateMobs: false, migrateLegacyPositions: true });
       renderSkills();
+      renderQuests();
       renderInv();
       renderBank();
       renderEquipment();
@@ -6421,6 +7439,7 @@ if (windowsOpen.smithing && !availability.smithing){
       if (player.target) ensureWalkIntoRangeAndAct();
     }
 // mobs: aggro + move + attack
+updateDungeonQuestTriggers();
 updateMobsAI(dt);
 if (player.hp <= 0) handlePlayerDeath();
 
@@ -6464,6 +7483,9 @@ if (player.hp <= 0) handlePlayerDeath();
       } else if (
         player.target.kind==="bank" ||
         player.target.kind==="vendor" ||
+        player.target.kind==="quest_npc" ||
+        player.target.kind==="sealed_gate" ||
+        player.target.kind==="brazier" ||
         player.target.kind==="ladder_down" ||
         player.target.kind==="ladder_up"
       ){
@@ -6536,11 +7558,13 @@ initWorldSeed();
     renderEquipment();
     renderInv();
     renderSkills();
+    renderQuests();
     renderBank();
     renderQuiver();
     renderHPHUD();
 
     if (!TEST_MODE) {
+      chatLine(`<span class="muted">Tip:</span> Talk to Quartermaster Bryn in the starter castle to begin your first quest.`);
       chatLine(`<span class="muted">Tip:</span> Rat training packs are now south of the river. Cross a bridge to reach them early.`);
       chatLine(`<span class="muted">Tip:</span> The vendor is inside the shop east of the starter castle.`);
       chatLine(`<span class="muted">Tip:</span> Loot auto-picks up when you stand near it. If full, items stay on the ground.`);

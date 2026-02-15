@@ -89,6 +89,18 @@
             <circle cx="8" cy="8" r="1.1" fill="#ffffff"/>
           </svg>
         </button>
+        <button class="iconBtn" id="iconQst" title="Quests" aria-label="Quests">
+          <svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" aria-hidden="true" focusable="false">
+            <rect x="1" y="1" width="14" height="14" rx="2" fill="#1f1f12"/>
+            <rect x="2" y="2" width="12" height="12" rx="1" fill="#504723"/>
+            <rect x="2" y="2" width="12" height="4" fill="#86773e"/>
+            <rect x="2" y="9" width="12" height="5" fill="rgba(0,0,0,.24)"/>
+            <rect x="4" y="4.5" width="8" height="7.5" rx="1" fill="#d9c68a"/>
+            <rect x="5" y="6" width="6" height=".9" fill="#6f5f2f"/>
+            <rect x="5" y="7.8" width="5" height=".9" fill="#6f5f2f"/>
+            <rect x="5" y="9.6" width="4" height=".9" fill="#6f5f2f"/>
+          </svg>
+        </button>
         <button class="iconBtn" id="iconBank" title="Bank" aria-label="Bank">
           <svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" aria-hidden="true" focusable="false">
             <rect x="1" y="1" width="14" height="14" rx="2" fill="#29180a"/>
@@ -215,6 +227,30 @@
 
         <div class="hint">
           Fast leveling is enabled for testing. Melee damage XP goes to exactly one selected skill above.
+        </div>
+      </div>
+    </div>
+    <div class="window hidden" id="winQuests" style="left:18px; top:70px; width:560px; height:560px;">
+      <div class="winHeader" id="hdrQuests">
+        <div class="title">Quests <span class="pill" id="questsSummaryPill">Active: 0 | New: 0 | Completed: 0</span></div>
+        <button class="winClose" data-close="quests" title="Close">X</button>
+      </div>
+      <div class="winBody">
+        <div class="questBlock">
+          <div class="questBlockTitle">Active Quests</div>
+          <div class="questList" id="questsActiveList"></div>
+        </div>
+        <div class="questBlock">
+          <div class="questBlockTitle">New Quests</div>
+          <div class="questList" id="questsNewList"></div>
+        </div>
+        <div class="questBlock">
+          <div class="questBlockTitle">Locked Quests</div>
+          <div class="questList" id="questsLockedList"></div>
+        </div>
+        <div class="questBlock">
+          <div class="questBlockTitle">Completed Quests</div>
+          <div class="questList" id="questsCompletedList"></div>
         </div>
       </div>
     </div>

@@ -49,6 +49,18 @@ export const MOB_DEFS = {
     attackRange: 1.15,
     attackSpeedMs: 1700,
     maxHit: 3
+  },
+  skeleton_warden: {
+    name: "Skeleton Warden",
+    hp: 72,
+    levels: { accuracy: 17, power: 17, defense: 14, ranged: 1, sorcery: 1, health: 12 },
+    aggroOnSight: true,
+    moveSpeed: 132,
+    aggroRange: 6.0,
+    leash: 10.0,
+    attackRange: 1.2,
+    attackSpeedMs: 1600,
+    maxHit: 6
   }
 };
 
@@ -86,3 +98,45 @@ export const DEFAULT_MOB_LEVELS = {
   sorcery: 1,
   health: 1
 };
+
+export const QUEST_DEFS = [
+  {
+    id: "first_watch",
+    name: "First Watch",
+    giverNpcId: "quartermaster",
+    summary: "Prove you can survive outside the keep.",
+    requirements: [],
+    objectives: [
+      { id: "chop_log", label: "Chop logs", type: "gather_item", itemId: "log", target: 3 },
+      { id: "mine_ore", label: "Mine ore", type: "gather_item", itemId: "ore", target: 3 },
+      { id: "cook_food", label: "Cook food", type: "cook_any", target: 2 },
+      { id: "smelt_bar", label: "Smelt crude bars", type: "smelt_item", itemId: "crude_bar", target: 3 },
+      { id: "slay_rat", label: "Defeat rats", type: "kill_mob", mobType: "rat", target: 2 },
+      { id: "report_quartermaster", label: "Report to Quartermaster", type: "talk_npc", npcId: "quartermaster", target: 2 }
+    ],
+    rewards: [
+      "Warden Key Fragment",
+      "150 Gold",
+      "XP lamp (planned)"
+    ]
+  },
+  {
+    id: "ashes_under_the_keep",
+    name: "Ashes Under the Keep",
+    giverNpcId: "quartermaster",
+    summary: "Descend into the old halls and challenge the Warden.",
+    requirements: [
+      { type: "quest_complete", questId: "first_watch", label: "Complete First Watch" }
+    ],
+    objectives: [
+      { id: "briefing", label: "Receive briefing from Quartermaster", type: "talk_npc", npcId: "quartermaster", target: 1 },
+      { id: "enter_wing", label: "Enter the sealed wing", type: "manual", target: 1 },
+      { id: "light_brazier", label: "Light dead braziers", type: "manual", target: 2 },
+      { id: "defeat_warden", label: "Defeat the Skeleton Warden", type: "kill_mob", mobType: "skeleton_warden", target: 1 }
+    ],
+    rewards: [
+      "Warden's Brand",
+      "350 Gold"
+    ]
+  }
+];

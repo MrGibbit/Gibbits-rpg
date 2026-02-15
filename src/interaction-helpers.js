@@ -16,6 +16,8 @@ export function createInteractionHelpers(deps) {
       const mob = mobs[ent.index];
       if (mob?.type === "goblin") {
         chatLine(`<span class="muted">A mean little goblin with scavenged gear.</span>`);
+      } else if (mob?.type === "skeleton_warden") {
+        chatLine(`<span class="muted">An ancient skeletal commander bound to guard the sealed wing.</span>`);
       } else if (mob?.type === "skeleton") {
         chatLine(`<span class="muted">A rattling skeleton bound to this dungeon.</span>`);
       } else {
@@ -27,6 +29,9 @@ export function createInteractionHelpers(deps) {
     if (ent.kind === "res" && ent.label === "Iron Rock") chatLine(`<span class="muted">A dense iron rock. Requires Mining level 10.</span>`);
     if (ent.kind === "bank") chatLine(`<span class="muted">A secure bank chest.</span>`);
     if (ent.kind === "vendor") chatLine(`<span class="muted">A traveling vendor. Buys and sells goods.</span>`);
+    if (ent.kind === "quest_npc") chatLine(`<span class="muted">A veteran quartermaster keeping records and assignments.</span>`);
+    if (ent.kind === "sealed_gate") chatLine(`<span class="muted">A rune-bound gate leading into the old boss wing.</span>`);
+    if (ent.kind === "brazier") chatLine(`<span class="muted">An old brazier. It looks tied to the warding ritual in this hall.</span>`);
     if (ent.kind === "fire") chatLine(`<span class="muted">A warm campfire. Great for cooking.</span>`);
     if (ent.kind === "fish") chatLine(`<span class="muted">A bubbling fishing spot in the river.</span>`);
     if (ent.kind === "furnace") chatLine(`<span class="muted">A sturdy furnace. You can smelt crude or iron ore into crude bars here.</span>`);
