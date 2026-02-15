@@ -31,7 +31,10 @@ export function createEntityLookup(deps) {
     const resIndex = resources.findIndex((r) => r.alive && r.x === tx && r.y === ty);
     if (resIndex >= 0) {
       const res = resources[resIndex];
-      return { kind: "res", index: resIndex, label: res.type === "tree" ? "Tree" : "Rock" };
+      if (res.type === "tree") return { kind: "res", index: resIndex, label: "Tree" };
+      if (res.type === "iron_rock") return { kind: "res", index: resIndex, label: "Iron Rock" };
+      if (res.type === "rock") return { kind: "res", index: resIndex, label: "Rock" };
+      return { kind: "res", index: resIndex, label: "Resource" };
     }
 
     return null;

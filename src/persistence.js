@@ -276,6 +276,57 @@ export function createPersistence(deps) {
     }
   }
 
+  function ensureIronRockFallback(runtime) {
+    if (runtime.resources.some((r) => r && r.type === "iron_rock")) return;
+
+    const mapRef = runtime.map;
+    const width = runtime.width;
+    const height = runtime.height;
+    const ironSeedRng = makeRng(worldState.seed ^ 0x3A11FE23);
+    const desired = 8;
+    let placed = 0;
+
+    function inBoundsLocal(x, y) {
+      return x >= 0 && y >= 0 && x < width && y < height;
+    }
+
+    function nearTileTypeLocal(x, y, tileVal, radius = 1) {
+      for (let oy = -radius; oy <= radius; oy++) {
+        for (let ox = -radius; ox <= radius; ox++) {
+          if (!ox && !oy) continue;
+          const nx = x + ox;
+          const ny = y + oy;
+          if (!inBoundsLocal(nx, ny)) continue;
+          if (mapRef[ny][nx] === tileVal) return true;
+        }
+      }
+      return false;
+    }
+
+    function tileOkForLoadedIronRock(x, y) {
+      if (!inBoundsLocal(x, y)) return false;
+      if (mapRef[y][x] !== 0) return false;
+      if (!nearTileTypeLocal(x, y, 2, 1)) return false;
+      if (runtime.resources.some((r) => r.x === x && r.y === y)) return false;
+      if (runtime.interactables.some((it) => it.x === x && it.y === y)) return false;
+      return true;
+    }
+
+    for (let a = 0; a < 12000 && placed < desired; a++) {
+      const x = randInt(ironSeedRng, 0, width - 1);
+      const y = randInt(ironSeedRng, 0, height - 1);
+      if (!tileOkForLoadedIronRock(x, y)) continue;
+      runtime.resources.push({
+        type: "iron_rock",
+        x,
+        y,
+        alive: true,
+        respawnAt: 0
+      });
+      placed++;
+    }
+  }
+
   function restoreWorldForZone(zoneKey, zonePayload, t0) {
     const runtime = getZoneRuntime(zoneKey);
     const worldPayload = zonePayload?.world;
@@ -344,6 +395,7 @@ export function createPersistence(deps) {
     if (zoneKey === OVERWORLD_ZONE) {
       runInZone(zoneKey, () => seedInteractables());
       ensureGoblinFallback(runtime, t0);
+      ensureIronRockFallback(runtime);
     }
 
     if (Array.isArray(worldPayload?.fires)) {

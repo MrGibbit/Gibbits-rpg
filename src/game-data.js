@@ -16,6 +16,8 @@ export const MOB_DEFS = {
     levels: { accuracy: 1, power: 1, defense: 1, ranged: 1, sorcery: 1, health: 1 },
     aggroOnSight: false,
     moveSpeed: 140,
+    dungeonRoamMinMs: 2800,
+    dungeonRoamMaxMs: 4500,
     aggroRange: 4.0,
     leash: 7.0,
     attackRange: 1.15,
@@ -28,11 +30,25 @@ export const MOB_DEFS = {
     levels: { accuracy: 4, power: 4, defense: 2, ranged: 1, sorcery: 1, health: 2 },
     aggroOnSight: false,
     moveSpeed: 145,
+    dungeonRoamMinMs: 2800,
+    dungeonRoamMaxMs: 4500,
     aggroRange: 4.4,
     leash: 8.0,
     attackRange: 1.15,
     attackSpeedMs: 1500,
     maxHit: 2
+  },
+  skeleton: {
+    name: "Skeleton",
+    hp: 22,
+    levels: { accuracy: 8, power: 8, defense: 4, ranged: 1, sorcery: 1, health: 4 },
+    aggroOnSight: false,
+    moveSpeed: 138,
+    aggroRange: 4.2,
+    leash: 8.5,
+    attackRange: 1.15,
+    attackSpeedMs: 1700,
+    maxHit: 3
   }
 };
 

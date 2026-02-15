@@ -32,6 +32,7 @@ import { createMobAI } from "./src/mob-ai.js";
 import { createFXRenderer } from "./src/fx-render.js";
 import { createActionResolver } from "./src/action-resolver.js";
 import { createMinimap } from "./src/minimap.js";
+import { createXPOrbs } from "./src/xp-orbs.js";
 
 // Keep this local so game.js doesn't hard-fail if a stale cached state module is loaded.
 const vendorShop = { x0: 16, y0: 3, w: 8, h: 6 };
@@ -118,6 +119,16 @@ stampVendorShopLayout({ map, width: W, height: H, startCastle, vendorShop });
     { type: "rat", x: 24, y: 9 },
     { type: "rat", x: 26, y: 13 },
     { type: "goblin", x: 31, y: 11 }
+  ];
+  const DUNGEON_SOUTH_SKELETON_SPAWNS = [
+    { x: 27, y: 31 },
+    { x: 30, y: 31 }
+  ];
+  const DUNGEON_SOUTH_IRON_ROCK_SPAWNS = [
+    { x: 24, y: 26 },
+    { x: 33, y: 26 },
+    { x: 24, y: 33 },
+    { x: 33, y: 33 }
   ];
   const DUNGEON_LEGACY_MOB_LAYOUTS = [
     [
@@ -344,6 +355,17 @@ stampVendorShopLayout({ map, width: W, height: H, startCastle, vendorShop });
     firemaking: flatIcon("fire"),
     cooking: flatIcon("pot")
   };
+  const xpOrbs = createXPOrbs({
+    ctx,
+    now,
+    clamp,
+    xpToNext,
+    skills: Skills,
+    skillIcons: SKILL_ICONS,
+    fallbackSkillIcon: SKILL_FALLBACK_ICON,
+    getViewWidth: () => VIEW_W,
+    getViewHeight: () => VIEW_H
+  });
 
   const SKILL_NAMES = {
     health: "Health",
@@ -432,6 +454,7 @@ function levelStrokeForCls(cls){
 
     log:  { id:"log",  name:"Log",  stack:true, icon:icon("log", "#876239", "#4a321d", "#24160d"), flatIcon:flatIcon("log") },
     ore:  { id:"ore",  name:"Crude Ore",  stack:true, icon:icon("ore", "#6f7f90", "#3a4454", "#1e2430"), flatIcon:flatIcon("ore") },
+    iron_ore: { id:"iron_ore", name:"Iron Ore", stack:true, icon:icon("ore", "#7a7f86", "#454b55", "#252a33"), flatIcon:flatIcon("ore") },
     crude_bar: { id:"crude_bar", name:"Crude Bar", stack:true, icon:icon("bar", "#8b7b64", "#4a4135", "#221d16"), flatIcon:flatIcon("bar") },
     crude_dagger: { id:"crude_dagger", name:"Crude Dagger", stack:false, icon:icon("knife", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("knife"), equipSlot:"weapon", combat:{ style:"melee", att:2, dmg:2 } },
     crude_sword: { id:"crude_sword", name:"Crude Sword", stack:false, icon:icon("sword", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("sword"), equipSlot:"weapon", combat:{ style:"melee", att:2, dmg:2 } },
@@ -944,13 +967,16 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
   function addXP(skillKey, amount){
     const s = Skills[skillKey];
     if (!s || !Number.isFinite(amount) || amount <= 0) return;
+    const gain = Math.floor(amount);
+    if (gain <= 0) return;
     const skillName = getSkillName(skillKey);
     const before = levelFromXP(s.xp);
-    s.xp += Math.floor(amount);
+    s.xp += gain;
+    xpOrbs.onGain(skillKey, gain);
     // show XP gain (throttled per skill so it doesn't spam)
     const t = now();
     if ((t - (lastSkillXPMsgAt[skillKey] ?? 0)) > 900){
-      chatLine(`<span class="muted">+${Math.floor(amount)} ${skillName} XP</span>`);
+      chatLine(`<span class="muted">+${gain} ${skillName} XP</span>`);
       lastSkillXPMsgAt[skillKey] = t;
     }
 
@@ -1201,6 +1227,19 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
     if (tooCloseToSameType("rock", p.x,p.y, 1.05)) continue;
     placeRes("rock", p.x,p.y);
     rocksPlaced++;
+  }
+
+  // ---------- Iron rocks: additional higher-tier source near rock faces ----------
+  const IRON_ROCK_TOTAL = 8;
+  let ironPlaced = 0;
+  for (let a=0; a<12000 && ironPlaced < IRON_ROCK_TOTAL; a++){
+    const z = pickZone(ROCK_ZONES);
+    const p = sampleInZone(z);
+    if (!tileOkForRock(p.x,p.y)) continue;
+    if (!nearTileType(p.x,p.y, 2, 1)) continue;
+    if (tooCloseToSameType("iron_rock", p.x,p.y, 1.10)) continue;
+    placeRes("iron_rock", p.x,p.y);
+    ironPlaced++;
   }
 }
 
@@ -3848,11 +3887,61 @@ return;
     return true;
   }
 
+  function rebuildDungeonTileLayout(){
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) map[y][x] = 4;
+    }
+
+    function carveRect(x0, y0, x1, y1, tile = 3) {
+      const ax0 = Math.max(0, Math.min(x0, x1));
+      const ay0 = Math.max(0, Math.min(y0, y1));
+      const ax1 = Math.min(W - 1, Math.max(x0, x1));
+      const ay1 = Math.min(H - 1, Math.max(y0, y1));
+      for (let y = ay0; y <= ay1; y++) {
+        for (let x = ax0; x <= ax1; x++) map[y][x] = tile;
+      }
+    }
+
+    // Entry room (ladder-up zone).
+    carveRect(6, 7, 14, 14, 3);
+
+    // Main east corridor.
+    carveRect(15, 10, 22, 11, 3);
+
+    // Mid chamber.
+    carveRect(23, 6, 34, 16, 3);
+
+    // Bridge over a small pit in the mid chamber.
+    carveRect(27, 10, 29, 12, 1);
+    carveRect(28, 10, 28, 12, 5);
+
+    // South descent corridor.
+    carveRect(28, 17, 29, 24, 3);
+
+    // Lower hall.
+    carveRect(22, 25, 35, 34, 3);
+
+    // Side alcove.
+    carveRect(17, 27, 21, 31, 3);
+    carveRect(21, 28, 22, 29, 3);
+
+    // Small northern crypt nook.
+    carveRect(26, 3, 31, 5, 3);
+
+    // Rubble blockers for visual variety.
+    carveRect(24, 30, 25, 31, 2);
+    carveRect(32, 27, 33, 28, 2);
+  }
+
   function seedDungeonZone(options = {}){
     const forcePopulateMobs = !!options.forcePopulateMobs;
     const migrateLegacyPositions = !!options.migrateLegacyPositions;
     withZone(ZONE_KEYS.DUNGEON, () => {
+      rebuildDungeonTileLayout();
       resources.length = 0;
+      for (const spot of DUNGEON_SOUTH_IRON_ROCK_SPAWNS) {
+        placeResource("iron_rock", spot.x, spot.y);
+      }
       if (!interactables.some((it) => it.type === "ladder_up")) {
         placeInteractable("ladder_up", DUNGEON_LADDER_UP.x, DUNGEON_LADDER_UP.y);
       }
@@ -3865,12 +3954,22 @@ return;
       } else if (migrateLegacyPositions) {
         migrateDungeonLegacyMobLayout();
       }
+
+      for (const spot of DUNGEON_SOUTH_SKELETON_SPAWNS) {
+        const exists = mobs.some((m) =>
+          String(m.type || "") === "skeleton" &&
+          ((Number.isFinite(m.homeX) ? (m.homeX | 0) : (m.x | 0)) === (spot.x | 0)) &&
+          ((Number.isFinite(m.homeY) ? (m.homeY | 0) : (m.y | 0)) === (spot.y | 0))
+        );
+        if (!exists) placeMob("skeleton", spot.x, spot.y);
+      }
     });
   }
 
   function useLadder(direction){
     if (direction === "down") {
       if (getActiveZone() !== ZONE_KEYS.OVERWORLD) return false;
+      seedDungeonZone({ forcePopulateMobs: false, migrateLegacyPositions: true });
       setCurrentZone(ZONE_KEYS.DUNGEON, { syncCamera: false });
       teleportPlayerTo(DUNGEON_SPAWN_TILE.x, DUNGEON_SPAWN_TILE.y, { requireWalkable: true, invulnMs: 900 });
       chatLine(`<span class="muted">You climb down the ladder into a dungeon.</span>`);
@@ -4562,7 +4661,19 @@ if (item.ammo){
         ctx.fill();
         ctx.fillStyle="#6b3f2a";
         ctx.fillRect(r.x*TILE+TILE/2-3, r.y*TILE+TILE/2+6, 6, 10);
-      } else {
+      } else if (r.type==="iron_rock") {
+        ctx.fillStyle="#6d7887";
+        ctx.beginPath();
+        ctx.moveTo(r.x*TILE+10, r.y*TILE+22);
+        ctx.lineTo(r.x*TILE+16, r.y*TILE+10);
+        ctx.lineTo(r.x*TILE+24, r.y*TILE+16);
+        ctx.lineTo(r.x*TILE+22, r.y*TILE+26);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle="rgba(156,163,175,.45)";
+        ctx.fillRect(r.x*TILE+12, r.y*TILE+15, 3, 3);
+        ctx.fillRect(r.x*TILE+17, r.y*TILE+13, 3, 3);
+      } else if (r.type==="rock") {
         ctx.fillStyle="#7a8191";
         ctx.beginPath();
         ctx.moveTo(r.x*TILE+10, r.y*TILE+22);
@@ -4571,6 +4682,8 @@ if (item.ammo){
         ctx.lineTo(r.x*TILE+22, r.y*TILE+26);
         ctx.closePath();
         ctx.fill();
+        ctx.fillStyle="rgba(226,232,240,.45)";
+        ctx.fillRect(r.x*TILE+15, r.y*TILE+14, 3, 3);
       }
     }
   }
@@ -4790,7 +4903,148 @@ if (item.ammo){
     // HP bar
     ctx.fillStyle = "rgba(0,0,0,.56)";
     ctx.fillRect(px+6, py+3, TILE-12, 5);
-    ctx.fillStyle = "#84cc16";
+    ctx.fillStyle = "#fb7185";
+    const w = clamp((m.hp/m.maxHp)*(TILE-12), 0, TILE-12);
+    ctx.fillRect(px+6, py+3, w, 5);
+    ctx.fillStyle = "rgba(255,255,255,.25)";
+    ctx.fillRect(px+6, py+3, w, 1);
+
+    ctx.restore();
+  }
+
+  function drawSkeleton(m){
+    const baseCx = (Number.isFinite(m.px) ? m.px : (m.x*TILE+TILE/2));
+    const baseCy = (Number.isFinite(m.py) ? m.py : (m.y*TILE+TILE/2));
+    const px = baseCx - TILE/2;
+    const py = baseCy - TILE/2;
+
+    const prevCx = Number.isFinite(m._prevDrawCx) ? m._prevDrawCx : baseCx;
+    const dx = baseCx - prevCx;
+    if (Math.abs(dx) > 0.06) m._faceX = (dx >= 0) ? 1 : -1;
+    if (!Number.isFinite(m._faceX)) m._faceX = 1;
+    m._prevDrawCx = baseCx;
+    const face = m._faceX;
+
+    const t = now();
+    const bob = Math.sin(t*0.009 + m.x*0.73 + m.y*0.57) * 0.55;
+    const armSwing = Math.sin(t*0.013 + m.x*0.62 + m.y*0.49) * 1.5;
+    const cx = baseCx;
+    const cy = baseCy + bob;
+
+    ctx.save();
+
+    ctx.fillStyle = "rgba(0,0,0,.35)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 12.8, 10.5, 3.8, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Dark silhouette behind bones to reduce cartoon feel.
+    ctx.fillStyle = "rgba(15,23,42,.30)";
+    ctx.beginPath();
+    ctx.moveTo(cx - 7.0, cy + 10.8);
+    ctx.lineTo(cx - 6.2, cy + 0.2);
+    ctx.lineTo(cx - 2.8, cy - 6.6);
+    ctx.lineTo(cx + 3.0, cy - 6.1);
+    ctx.lineTo(cx + 6.2, cy + 0.1);
+    ctx.lineTo(cx + 7.0, cy + 10.8);
+    ctx.closePath();
+    ctx.fill();
+
+    // Legs (taller stance)
+    ctx.fillStyle = "#d6dde6";
+    ctx.fillRect(cx - 5.2, cy + 7.2, 2.5, 5.2);
+    ctx.fillRect(cx + 2.7, cy + 7.2, 2.5, 5.2);
+    ctx.fillStyle = "#f3f6fa";
+    ctx.fillRect(cx - 5.2, cy + 9.0, 2.5, 1.1);
+    ctx.fillRect(cx + 2.7, cy + 9.0, 2.5, 1.1);
+    ctx.fillStyle = "#c4ccd7";
+    ctx.fillRect(cx - 5.7, cy + 12.0, 3.5, 1.3);
+    ctx.fillRect(cx + 2.2, cy + 12.0, 3.5, 1.3);
+
+    // Spine + ribs
+    ctx.fillStyle = "#e5ebf3";
+    ctx.fillRect(cx - 0.9, cy - 3.1, 1.8, 11.6);
+    ctx.fillRect(cx - 5.9, cy - 0.9, 11.8, 1.2);
+    ctx.fillRect(cx - 5.1, cy + 1.5, 10.2, 1.1);
+    ctx.fillRect(cx - 4.0, cy + 3.8, 8.0, 1.1);
+    ctx.fillRect(cx - 2.9, cy + 6.1, 5.8, 1.0);
+    ctx.strokeStyle = "rgba(0,0,0,.42)";
+    ctx.lineWidth = 1.0;
+    ctx.strokeRect(cx - 5.9, cy - 0.9, 11.8, 8.0);
+
+    // Arms (longer forearms to make it lankier)
+    const leftFore = armSwing * 0.22;
+    const rightFore = armSwing * 0.16;
+    ctx.fillStyle = "#d8e0ea";
+    ctx.fillRect(cx - 8.0, cy + 0.6, 1.9, 4.8);
+    ctx.fillRect(cx + 6.1, cy + 0.6, 1.9, 4.8);
+    ctx.fillRect(cx - 8.4, cy + 4.7 + leftFore, 2.0, 4.2);
+    ctx.fillRect(cx + 6.4, cy + 4.7 - rightFore, 2.0, 4.2);
+    ctx.fillStyle = "#c6cfda";
+    ctx.fillRect(cx - 8.8, cy + 8.4 + leftFore, 2.4, 1.2);
+    ctx.fillRect(cx + 6.3, cy + 8.4 - rightFore, 2.4, 1.2);
+
+    // Skull
+    const headX = cx + face*2.0;
+    ctx.fillStyle = "#ecf1f7";
+    ctx.beginPath();
+    ctx.ellipse(headX, cy - 5.2, 4.9, 5.8, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.44)";
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.ellipse(headX, cy - 5.2, 4.9, 5.8, 0, 0, Math.PI*2);
+    ctx.stroke();
+
+    // Eye sockets + nose cavity + jaw (angrier expression)
+    ctx.strokeStyle = "rgba(0,0,0,.62)";
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(headX - face*3.0, cy - 7.2);
+    ctx.lineTo(headX - face*0.6, cy - 6.1);
+    ctx.moveTo(headX + face*0.3, cy - 6.1);
+    ctx.lineTo(headX + face*2.8, cy - 7.3);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(6,9,14,.92)";
+    ctx.beginPath();
+    ctx.moveTo(headX - face*2.6, cy - 6.3);
+    ctx.lineTo(headX - face*0.8, cy - 5.9);
+    ctx.lineTo(headX - face*1.2, cy - 4.8);
+    ctx.lineTo(headX - face*2.8, cy - 5.2);
+    ctx.closePath();
+    ctx.moveTo(headX + face*0.6, cy - 5.9);
+    ctx.lineTo(headX + face*2.3, cy - 6.3);
+    ctx.lineTo(headX + face*2.7, cy - 5.2);
+    ctx.lineTo(headX + face*1.1, cy - 4.8);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(headX + face*0.15, cy - 4.3);
+    ctx.lineTo(headX - face*1.0, cy - 2.0);
+    ctx.lineTo(headX + face*1.1, cy - 2.0);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#d5dde8";
+    ctx.fillRect(headX - 2.5, cy - 1.9, 5.0, 2.0);
+    ctx.strokeStyle = "rgba(0,0,0,.5)";
+    ctx.beginPath();
+    ctx.moveTo(headX - 1.8, cy - 5.7);
+    ctx.lineTo(headX - 0.1, cy - 3.9);
+    ctx.moveTo(headX - 2.1, cy - 0.7);
+    ctx.lineTo(headX + 2.0, cy - 1.1);
+    ctx.stroke();
+    ctx.fillStyle = "#f8fafc";
+    ctx.fillRect(headX - 2.0, cy - 1.4, 0.65, 0.85);
+    ctx.fillRect(headX - 0.75, cy - 1.3, 0.65, 0.85);
+    ctx.fillRect(headX + 0.45, cy - 1.4, 0.65, 0.85);
+
+    // HP bar
+    ctx.fillStyle = "rgba(0,0,0,.56)";
+    ctx.fillRect(px+6, py+3, TILE-12, 5);
+    ctx.fillStyle = "#fb7185";
     const w = clamp((m.hp/m.maxHp)*(TILE-12), 0, TILE-12);
     ctx.fillRect(px+6, py+3, w, 5);
     ctx.fillStyle = "rgba(255,255,255,.25)";
@@ -4806,6 +5060,7 @@ if (item.ammo){
       if (m.x<startX-1 || m.x>endX+1 || m.y<startY-1 || m.y>endY+1) continue;
       if (m.type==="rat") drawRat(m);
       else if (m.type==="goblin") drawGoblin(m);
+      else if (m.type==="skeleton") drawSkeleton(m);
       else drawRat(m);
     }
   }
@@ -6044,10 +6299,11 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
       const t=map[ty][tx];
       if (t===0) label="Walk here";
       if (t===1) label="Water";
-      if (t===2) label="Cliff";
+      const inDungeonZone = (getActiveZone() === ZONE_KEYS.DUNGEON);
+      if (t===2) label=(inDungeonZone ? "Rubble" : "Rock Face");
       if (t===3) label="Stone floor";
-      if (t===4) label="Castle wall";
-      if (t===5) label="Path";
+      if (t===4) label=(inDungeonZone ? "Dungeon wall" : "Castle wall");
+      if (t===5) label=(inDungeonZone ? "Bridge" : "Path");
     }
 
     const pile = getLootPileAt(tx,ty);
@@ -6128,7 +6384,8 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
     viewWorldH,
     isWalkable: navIsWalkable,
     inBounds: navInBounds,
-    setPathTo
+    setPathTo,
+    getActiveZone
   });
 
   // ---------- Input / world-space mouse ----------
@@ -6202,6 +6459,11 @@ function drawSmeltingAnimation(cx, cy, fx, fy, pct){
     } else if (ent?.kind==="res" && ent.label==="Tree"){
       opts.push({label:"Chop Tree", onClick:()=>beginInteraction(ent)});
       opts.push({label:"Examine Tree", onClick:()=>examineEntity(ent)});
+      opts.push({type:"sep"});
+      opts.push({label:"Walk here", onClick:walkHere});
+    } else if (ent?.kind==="res" && ent.label==="Iron Rock"){
+      opts.push({label:"Mine Iron Rock", onClick:()=>beginInteraction(ent)});
+      opts.push({label:"Examine Iron Rock", onClick:()=>examineEntity(ent)});
       opts.push({type:"sep"});
       opts.push({label:"Walk here", onClick:walkHere});
     } else if (ent?.kind==="res" && ent.label==="Rock"){
@@ -6760,6 +7022,7 @@ if (player.hp <= 0) handlePlayerDeath();
 
     ctx.setTransform(1,0,0,1,0,0);
     drawMinimap();
+    xpOrbs.draw();
   }
 
   function loop(){

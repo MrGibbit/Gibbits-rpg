@@ -42,6 +42,48 @@ export function createActionResolver(deps) {
     onUseLadder
   } = deps;
 
+  function stopIfInventoryFull(message = "Inventory full.") {
+    if (emptyInvSlots() > 0) return false;
+    stopAction(message);
+    return true;
+  }
+
+  function addGatherItemOrStop(itemId, fullMessage) {
+    const got = addToInventory(itemId, 1);
+    if (got === 1) return true;
+    chatLine(fullMessage);
+    stopAction();
+    return false;
+  }
+
+  function finishGatherSuccess(skillKey, xpAmount, successMessage) {
+    addXP(skillKey, xpAmount);
+    chatLine(successMessage);
+    stopIfInventoryFull("Inventory full.");
+  }
+
+  function startGatherAction(config) {
+    const {
+      actionType,
+      durationMs,
+      actionLabel,
+      itemId,
+      fullMessage,
+      onCollected,
+      skillKey,
+      xpAmount,
+      successMessage
+    } = config;
+
+    startTimedAction(actionType, durationMs, actionLabel, () => {
+      if (stopIfInventoryFull("Inventory full.")) return;
+      if (!addGatherItemOrStop(itemId, fullMessage)) return;
+
+      if (typeof onCollected === "function") onCollected();
+      finishGatherSuccess(skillKey, xpAmount, successMessage);
+    });
+  }
+
   function ensureWalkIntoRangeAndAct() {
     const t = player.target;
     if (!t) return;
@@ -143,16 +185,19 @@ export function createActionResolver(deps) {
 
       if (player.action.type !== "idle") return;
 
-      if (!hasItem("ore")) {
-        chatLine(`<span class="muted">The furnace is ready. You need ${Items.ore?.name ?? "ore"}.</span>`);
+      const hasCrudeOre = hasItem("ore");
+      const hasIronOre = hasItem("iron_ore");
+      if (!hasCrudeOre && !hasIronOre) {
+        chatLine(`<span class="muted">The furnace is ready. You need ore.</span>`);
         stopAction();
         return;
       }
 
-      chatLine("You feed crude ore into the furnace...");
+      const smeltId = hasIronOre ? "iron_ore" : "ore";
+      chatLine(`You feed ${Items[smeltId]?.name ?? smeltId} into the furnace...`);
       startTimedAction("smelt", 1600, "Smelting...", () => {
-        if (!removeItemsFromInventory("ore", 1)) {
-          chatLine(`<span class="warn">You need ${Items.ore?.name ?? "ore"}.</span>`);
+        if (!removeItemsFromInventory(smeltId, 1)) {
+          chatLine(`<span class="warn">You need ${Items[smeltId]?.name ?? smeltId}.</span>`);
           return;
         }
 
@@ -283,12 +328,11 @@ export function createActionResolver(deps) {
         return;
       }
 
-      if (!hasItem("goldfish") && emptyInvSlots() <= 0) {
-        stopAction("Inventory full.");
-        return;
-      }
+      if (stopIfInventoryFull("Inventory full.")) return;
 
       startTimedAction("fish", 1600, "Fishing...", () => {
+        if (stopIfInventoryFull("Inventory full.")) return;
+
         const lvlNow = levelFromXP(Skills.fishing.xp);
         const chance = clamp(0.35 + lvlNow * 0.05, 0.35, 0.90);
         if (Math.random() > chance) {
@@ -296,15 +340,8 @@ export function createActionResolver(deps) {
           return;
         }
 
-        const got = addToInventory("goldfish", 1);
-        if (got === 1) {
-          addXP("fishing", 18);
-          chatLine(`<span class="good">You catch a gold fish.</span> (+18 XP)`);
-        } else {
-          addGroundLoot(player.x, player.y, "goldfish", 1);
-          addXP("fishing", 18);
-          chatLine(`<span class="warn">Inventory full: ${Items.goldfish.name}</span> (+18 XP)`);
-        }
+        if (!addGatherItemOrStop("goldfish", `<span class="warn">Inventory full: ${Items.goldfish.name}</span>`)) return;
+        finishGatherSuccess("fishing", 18, `<span class="good">You catch a gold fish.</span> (+18 XP)`);
       });
 
       return;
@@ -313,8 +350,10 @@ export function createActionResolver(deps) {
     if (t.kind === "res") {
       const r = resources[t.index];
       if (!r || !r.alive) return stopAction("That resource is gone.");
+      const isRock = (r.type === "rock");
+      const isIronRock = (r.type === "iron_rock");
       if (r.type === "tree" && !hasItem("axe")) return stopAction("You need an axe.");
-      if (r.type === "rock" && !hasItem("pick")) return stopAction("You need a pick.");
+      if ((isRock || isIronRock) && !hasItem("pick")) return stopAction("You need a pick.");
 
       if (!inRangeOfTile(r.x, r.y, 1.1)) {
         const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]]
@@ -330,37 +369,48 @@ export function createActionResolver(deps) {
       player.facing.y = clamp(r.y - player.y, -1, 1);
 
       if (player.action.type !== "idle") return;
+      if (isIronRock && levelFromXP(Skills.mining.xp) < 10) {
+        return stopAction("You need Mining level 10 to mine iron rocks.");
+      }
+      if (stopIfInventoryFull("Inventory full.")) return;
 
       if (r.type === "tree") {
         chatLine("You swing your axe at the tree...");
-        startTimedAction("woodcut", 1400, "Chopping...", () => {
-          r.alive = false;
-          r.respawnAt = now() + 9000;
-
-          const got = addToInventory("log", 1);
-          if (got === 1) {
-            addXP("woodcutting", 35);
-            chatLine(`<span class="good">You get a log.</span> (+35 XP)`);
-          } else {
-            addGroundLoot(r.x, r.y, "log", 1);
-            chatLine(`<span class="warn">Inventory full: ${Items.log.name}</span>`);
-          }
+        startGatherAction({
+          actionType: "woodcut",
+          durationMs: 1400,
+          actionLabel: "Chopping...",
+          itemId: "log",
+          fullMessage: `<span class="warn">Inventory full: ${Items.log.name}</span>`,
+          onCollected: () => {
+            r.alive = false;
+            r.respawnAt = now() + 9000;
+          },
+          skillKey: "woodcutting",
+          xpAmount: 35,
+          successMessage: `<span class="good">You get a log.</span> (+35 XP)`
+        });
+      } else if (isRock || isIronRock) {
+        const mineXp = isIronRock ? 65 : 40;
+        const verb = isIronRock ? "iron rock" : "rock";
+        const oreId = isIronRock ? "iron_ore" : "ore";
+        chatLine(`You chip away at the ${verb}...`);
+        startGatherAction({
+          actionType: "mine",
+          durationMs: 1600,
+          actionLabel: "Mining...",
+          itemId: oreId,
+          fullMessage: `<span class="warn">Inventory full: ${Items[oreId]?.name ?? oreId}</span>`,
+          onCollected: () => {
+            r.alive = false;
+            r.respawnAt = now() + 11000;
+          },
+          skillKey: "mining",
+          xpAmount: mineXp,
+          successMessage: `<span class="good">You mine ${Items[oreId]?.name ?? oreId} from the ${verb}.</span> (+${mineXp} XP)`
         });
       } else {
-        chatLine("You chip away at the rock...");
-        startTimedAction("mine", 1600, "Mining...", () => {
-          r.alive = false;
-          r.respawnAt = now() + 11000;
-
-          const got = addToInventory("ore", 1);
-          if (got === 1) {
-            addXP("mining", 40);
-            chatLine(`<span class="good">You get some crude ore.</span> (+40 XP)`);
-          } else {
-            addGroundLoot(r.x, r.y, "ore", 1);
-            chatLine(`<span class="warn">Inventory full: ${Items.ore.name}</span>`);
-          }
-        });
+        return stopAction("You can't gather that.");
       }
       return;
     }
@@ -480,7 +530,7 @@ export function createActionResolver(deps) {
           if (Math.random() < 0.50) {
             const oreGot = addToInventory("ore", 1);
             if (oreGot === 1) {
-              chatLine(`<span class="good">The goblin drops some crude ore.</span>`);
+              chatLine(`<span class="good">The goblin drops some ${Items.ore?.name ?? "ore"}.</span>`);
             } else {
               addGroundLoot(m.x, m.y, "ore", 1);
               chatLine(`<span class="warn">Inventory full: ${Items.ore.name}</span>`);
@@ -493,6 +543,30 @@ export function createActionResolver(deps) {
           }
           if (Math.random() < 0.88) {
             const g = 4 + Math.floor(Math.random() * 12);
+            addGold(g);
+            chatLine(`<span class="good">You gain ${g} gold.</span>`);
+          }
+        } else if (m.type === "skeleton") {
+          if (Math.random() < 0.95) {
+            const got = addToInventory("bone", 1);
+            if (got === 1) {
+              chatLine(`<span class="good">The skeleton drops a bone.</span>`);
+            } else {
+              addGroundLoot(m.x, m.y, "bone", 1);
+              chatLine(`<span class="warn">Inventory full: ${Items.bone.name}</span>`);
+            }
+          }
+          if (Math.random() < 0.50) {
+            const oreGot = addToInventory("iron_ore", 1);
+            if (oreGot === 1) {
+              chatLine(`<span class="good">The skeleton drops some ${Items.iron_ore?.name ?? "iron ore"}.</span>`);
+            } else {
+              addGroundLoot(m.x, m.y, "iron_ore", 1);
+              chatLine(`<span class="warn">Inventory full: ${Items.iron_ore?.name ?? "iron ore"}</span>`);
+            }
+          }
+          if (Math.random() < 0.75) {
+            const g = 6 + Math.floor(Math.random() * 14);
             addGold(g);
             chatLine(`<span class="good">You gain ${g} gold.</span>`);
           }

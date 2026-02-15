@@ -235,14 +235,13 @@ export function createMobAI(deps) {
         if ((aggroOnSight || provoked) && !playerSafe && dToPlayer <= aggroRange) {
           m.target = "player";
           m.aggroUntil = t + 12000;
-        } else if (dFromHome > 0.05) {
-          if (t >= m.moveCooldownUntil) {
-            m.moveCooldownUntil = t + 420;
-            mobStepToward(m, m.homeX, m.homeY);
-          }
         } else if (inDungeonZone && (typeKey === "rat" || typeKey === "goblin")) {
           if (t >= m.moveCooldownUntil) {
             const roamRadius = Math.min(leash, 3.2);
+            const roamMinRaw = Number.isFinite(def.dungeonRoamMinMs) ? def.dungeonRoamMinMs : 1400;
+            const roamMaxRaw = Number.isFinite(def.dungeonRoamMaxMs) ? def.dungeonRoamMaxMs : 2400;
+            const roamMinMs = Math.max(200, Math.min(roamMinRaw, roamMaxRaw));
+            const roamMaxMs = Math.max(roamMinMs, Math.max(roamMinRaw, roamMaxRaw));
             const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
             const candidates = [];
 
@@ -256,12 +255,17 @@ export function createMobAI(deps) {
               candidates.push({ x: nx, y: ny });
             }
 
-            m.moveCooldownUntil = t + 650 + Math.floor(Math.random() * 500);
+            m.moveCooldownUntil = t + roamMinMs + Math.floor(Math.random() * (roamMaxMs - roamMinMs + 1));
             if (candidates.length) {
               const pick = candidates[Math.floor(Math.random() * candidates.length)];
               m.x = pick.x;
               m.y = pick.y;
             }
+          }
+        } else if (dFromHome > 0.05) {
+          if (t >= m.moveCooldownUntil) {
+            m.moveCooldownUntil = t + 420;
+            mobStepToward(m, m.homeX, m.homeY);
           }
         }
         continue;
