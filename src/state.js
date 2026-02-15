@@ -421,6 +421,7 @@ export const windowsOpen = {
   equipment: false,
   skills: false,
   quests: false,
+  xpLamp: false,
   bank: false,
   smithing: false,
   settings: false,

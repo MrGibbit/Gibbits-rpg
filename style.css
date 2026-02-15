@@ -215,6 +215,7 @@
 #winEquipment{ --minW: 320px; --minH: 340px; }
 #winSkills{ --minW: 460px; --minH: 460px; }
 #winQuests{ --minW: 420px; --minH: 460px; }
+#winXpLamp{ --minW: 380px; --minH: 420px; }
 #winBank{ --minW: 420px; --minH: 460px; }
 #winVendor{ --minW: 420px; --minH: 460px; }
 #winSmithing{ --minW: 420px; --minH: 460px; }
@@ -225,6 +226,7 @@
   .window{ --minW: 280px; --minH: 240px; }
   #winSkills{ --minW: 320px; --minH: 320px; }
   #winQuests{ --minW: 320px; --minH: 360px; }
+  #winXpLamp{ --minW: 320px; --minH: 340px; }
   #winBank{ --minW: 320px; --minH: 360px; }
   #winVendor{ --minW: 320px; --minH: 360px; }
   #winSmithing{ --minW: 320px; --minH: 360px; }

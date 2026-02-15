@@ -322,6 +322,16 @@ stampVendorShopLayout({ map, width: W, height: H, startCastle, vendorShop });
       <path d="M8 2.5 L9.3 6.7 L13.5 8 L9.3 9.3 L8 13.5 L6.7 9.3 L2.5 8 L6.7 6.7 Z" fill="#e9d5ff"/>
       <circle cx="8" cy="8" r="1.2" fill="#f5f3ff"/>
     `,
+    genie_lamp: `
+      <rect x="3" y="8" width="8" height="3" rx="1.2" fill="#f59e0b"/>
+      <rect x="4" y="7" width="6" height="2" rx="1" fill="#fbbf24"/>
+      <rect x="2" y="9" width="2" height="1.4" rx=".7" fill="#facc15"/>
+      <rect x="10.6" y="8.7" width="2.3" height="1.1" rx=".5" fill="#fcd34d"/>
+      <rect x="11.8" y="8.3" width="1.5" height=".8" rx=".4" fill="#fde68a"/>
+      <rect x="6.6" y="6.1" width="1.8" height="1.1" rx=".4" fill="#fef3c7"/>
+      <rect x="7.1" y="5.2" width=".8" height=".9" fill="#fef08a"/>
+      <path d="M8.2 4.6 C9.5 3.5 9.8 2.6 9.1 1.6 C10.3 1.9 11 2.8 10.8 3.8 C10.6 4.7 9.8 5.2 8.9 5.3 Z" fill="#ddd6fe"/>
+    `,
     wizard_hat: `
       <path d="M8 2.8 L11.8 10.7 H4.2 Z" fill="#7c3aed"/>
       <path d="M8 4.4 L10.3 9.2 H5.7 Z" fill="#a78bfa"/>
@@ -514,6 +524,14 @@ function levelStrokeForCls(cls){
       flatIcon:flatIcon("shield"),
       equipSlot:"offhand",
       combat:{ style:"any", def:5 }
+    },
+    xp_lamp: {
+      id:"xp_lamp",
+      name:"XP Lamp",
+      stack:true,
+      hint:"Redeem for 100 XP in any skill.",
+      icon:icon("genie_lamp", "#ffd166", "#f59e0b", "#7c2d12"),
+      flatIcon:flatIcon("genie_lamp")
     },
     rat_meat: {
       id:"rat_meat",
@@ -975,6 +993,8 @@ function consumeFoodFromInv(invIndex){
   const QUESTS = Array.isArray(QUEST_DEFS) ? QUEST_DEFS : [];
   const QUESTS_BY_ID = new Map(QUESTS.map((q) => [q.id, q]));
   const questState = { byId: Object.create(null) };
+  const QUEST_REWARD_TOKEN_BUCKET = "__rewards";
+  const FIRST_WATCH_LAMP_TOKEN = "first_watch_xp_lamp_v1";
 
   function createQuestProgressRow(def){
     const progress = Object.create(null);
@@ -1056,6 +1076,49 @@ function consumeFoodFromInv(invIndex){
     return !!row.tokens?.[key]?.[tok];
   }
 
+  function hasQuestRewardToken(questId, token){
+    const row = getQuestProgress(questId);
+    if (!row) return false;
+    const tok = String(token || "");
+    if (!tok) return false;
+    return !!row.tokens?.[QUEST_REWARD_TOKEN_BUCKET]?.[tok];
+  }
+
+  function markQuestRewardToken(questId, token){
+    const row = getQuestProgress(questId);
+    if (!row) return false;
+    const tok = String(token || "");
+    if (!tok) return false;
+    if (!row.tokens || typeof row.tokens !== "object") row.tokens = Object.create(null);
+    if (!row.tokens[QUEST_REWARD_TOKEN_BUCKET] || typeof row.tokens[QUEST_REWARD_TOKEN_BUCKET] !== "object"){
+      row.tokens[QUEST_REWARD_TOKEN_BUCKET] = Object.create(null);
+    }
+    row.tokens[QUEST_REWARD_TOKEN_BUCKET][tok] = 1;
+    return true;
+  }
+
+  function grantFirstWatchLampReward(options = {}){
+    const retroactive = !!options.retroactive;
+    if (hasQuestRewardToken("first_watch", FIRST_WATCH_LAMP_TOKEN)) return false;
+    if (retroactive && hasItem("xp_lamp")) {
+      markQuestRewardToken("first_watch", FIRST_WATCH_LAMP_TOKEN);
+      return false;
+    }
+    const added = addToInventory("xp_lamp", 1);
+    if (added > 0){
+      chatLine(retroactive
+        ? `<span class="good">Retroactive reward: XP Lamp granted for First Watch.</span>`
+        : `<span class="good">Quest reward: XP Lamp.</span>`);
+    } else {
+      addGroundLoot(player.x, player.y, "xp_lamp", 1);
+      chatLine(retroactive
+        ? `<span class="warn">Retroactive reward dropped: XP Lamp (inventory full).</span>`
+        : `<span class="warn">Quest reward dropped: XP Lamp (inventory full).</span>`);
+    }
+    markQuestRewardToken("first_watch", FIRST_WATCH_LAMP_TOKEN);
+    return true;
+  }
+
   function objectiveMatchesQuestEvent(obj, ev){
     if (!obj || !ev) return false;
     switch (obj.type){
@@ -1120,6 +1183,7 @@ function consumeFoodFromInv(invIndex){
           chatLine(`<span class="warn">Quest reward dropped: Warden Key Fragment (inventory full).</span>`);
         }
       }
+      grantFirstWatchLampReward();
       addGold(150);
       chatLine(`<span class="good">Quest reward: 150 gold.</span>`);
       return;
@@ -1256,18 +1320,23 @@ function consumeFoodFromInv(invIndex){
         row.completedAt = Math.max(0, Math.floor(Number(src.completedAt) || 0));
         row.tokens = Object.create(null);
         const srcTokens = (src.tokens && typeof src.tokens === "object") ? src.tokens : null;
+        if (srcTokens){
+          for (const [tokenGroup, tokenBag] of Object.entries(srcTokens)){
+            if (!tokenGroup || !tokenBag || typeof tokenBag !== "object") continue;
+            row.tokens[tokenGroup] = { ...tokenBag };
+          }
+        }
         for (const obj of (def.objectives || [])){
           const objectiveId = String(obj?.id || "");
           if (!objectiveId) continue;
           const target = getQuestObjectiveTarget(obj);
           const cur = Math.max(0, src.progress?.[objectiveId] | 0);
           row.progress[objectiveId] = Math.min(target, cur);
-          const tokenBag = srcTokens?.[objectiveId];
-          if (tokenBag && typeof tokenBag === "object") {
-            row.tokens[objectiveId] = { ...tokenBag };
-          }
         }
       }
+    }
+    if (isQuestCompleted("first_watch")) {
+      grantFirstWatchLampReward({ retroactive: true });
     }
     syncDungeonQuestState();
     renderQuests();
@@ -2284,6 +2353,7 @@ const BGM_KEY = "classic_bgm_v1";
   const winEquipment = document.getElementById("winEquipment");
   const winSkills    = document.getElementById("winSkills");
   const winQuests    = document.getElementById("winQuests");
+  const winXpLamp    = document.getElementById("winXpLamp");
   const winBank      = document.getElementById("winBank");
   const winVendor    = document.getElementById("winVendor");
   const winSmithing  = document.getElementById("winSmithing");
@@ -2304,6 +2374,7 @@ const BGM_KEY = "classic_bgm_v1";
     ["equipment", winEquipment],
     ["skills", winSkills],
     ["quests", winQuests],
+    ["xpLamp", winXpLamp],
     ["bank", winBank],
     ["vendor", winVendor],
     ["smithing", winSmithing],
@@ -2521,6 +2592,8 @@ const BGM_KEY = "classic_bgm_v1";
   const questsNewListEl = document.getElementById("questsNewList");
   const questsLockedListEl = document.getElementById("questsLockedList");
   const questsCompletedListEl = document.getElementById("questsCompletedList");
+  const xpLampCountPillEl = document.getElementById("xpLampCountPill");
+  const xpLampSkillListEl = document.getElementById("xpLampSkillList");
 
   const eqWeaponSlot = document.getElementById("eqWeapon");
   const eqOffhandSlot = document.getElementById("eqOffhand");
@@ -2545,6 +2618,7 @@ const BGM_KEY = "classic_bgm_v1";
       { out: "crude_shield", bars: 2, level: 4, xp: 44 }
     ]
   };
+  const XP_LAMP_GAIN = 100;
 
   function getItemCombatStatText(id){
     const item = Items[id];
@@ -2592,6 +2666,7 @@ const BGM_KEY = "classic_bgm_v1";
       invGrid.appendChild(slot);
     }
     renderSmithingUI();
+    renderXpLampUI();
   }
 
   function renderSkills(){
@@ -2710,6 +2785,79 @@ const BGM_KEY = "classic_bgm_v1";
     if (questsSummaryPillEl){
       questsSummaryPillEl.textContent = `Active: ${groups.active.length} | New: ${groups.new.length} | Completed: ${groups.completed.length}`;
     }
+  }
+
+  function redeemXpLampToSkill(skillKey){
+    if (!Skills[skillKey]){
+      chatLine(`<span class="warn">That skill cannot be trained.</span>`);
+      return;
+    }
+    if (!removeItemsFromInventory("xp_lamp", 1)){
+      chatLine(`<span class="warn">You need an ${Items.xp_lamp?.name ?? "XP Lamp"}.</span>`);
+      closeWindow("xpLamp");
+      return;
+    }
+
+    const skillName = getSkillName(skillKey);
+    addXP(skillKey, XP_LAMP_GAIN);
+    chatLine(`<span class="good">You channel the XP Lamp into ${skillName}. (+${XP_LAMP_GAIN} XP)</span>`);
+
+    if (countInvQtyById("xp_lamp") <= 0){
+      closeWindow("xpLamp");
+      return;
+    }
+    renderXpLampUI();
+  }
+
+  function renderXpLampUI(){
+    if (!xpLampSkillListEl) return;
+
+    const lampCount = countInvQtyById("xp_lamp");
+    if (xpLampCountPillEl) xpLampCountPillEl.textContent = `Lamps: ${lampCount}`;
+
+    if (lampCount <= 0){
+      xpLampSkillListEl.innerHTML = `<div class="hint">You do not have any XP Lamps.</div>`;
+      return;
+    }
+
+    xpLampSkillListEl.innerHTML = "";
+    const order = ["health","accuracy","power","defense","ranged","sorcery","fletching","woodcutting","mining","smithing","fishing","firemaking","cooking"];
+    for (const k of order){
+      const skill = Skills[k];
+      if (!skill) continue;
+
+      const level = levelFromXP(skill.xp | 0);
+      const name = getSkillName(k);
+      const row = document.createElement("div");
+      row.className = "shopRow";
+      row.innerHTML = `
+        <div class="shopLeft">
+          <div class="shopIcon">${SKILL_ICONS[k] ?? SKILL_FALLBACK_ICON}</div>
+          <div class="shopMeta">
+            <div class="shopName">${name}</div>
+            <div class="shopSub">Current: Lv ${level} · Redeem: +${XP_LAMP_GAIN} XP</div>
+          </div>
+        </div>
+        <div class="shopActions"></div>
+      `;
+
+      const actions = row.querySelector(".shopActions");
+      const btn = document.createElement("button");
+      btn.className = "shopBtn";
+      btn.textContent = "Redeem";
+      btn.onclick = () => redeemXpLampToSkill(k);
+      actions.appendChild(btn);
+      xpLampSkillListEl.appendChild(row);
+    }
+  }
+
+  function openXpLampWindow(){
+    if (countInvQtyById("xp_lamp") <= 0){
+      chatLine(`<span class="warn">You need an ${Items.xp_lamp?.name ?? "XP Lamp"}.</span>`);
+      return;
+    }
+    openWindow("xpLamp");
+    chatLine(`<span class="muted">You rub the XP Lamp. Choose a skill to empower.</span>`);
   }
 
   function renderQuiverSlot(){
@@ -3143,6 +3291,7 @@ const BGM_KEY = "classic_bgm_v1";
     winEquipment.classList.toggle("hidden", !windowsOpen.equipment);
     winSkills.classList.toggle("hidden", !windowsOpen.skills);
     if (winQuests) winQuests.classList.toggle("hidden", !windowsOpen.quests);
+    if (winXpLamp) winXpLamp.classList.toggle("hidden", !windowsOpen.xpLamp);
     winBank.classList.toggle("hidden", !windowsOpen.bank);
     winVendor.classList.toggle("hidden", !windowsOpen.vendor);
     if (winSmithing) winSmithing.classList.toggle("hidden", !windowsOpen.smithing);
@@ -3160,8 +3309,8 @@ const BGM_KEY = "classic_bgm_v1";
   }
 
   function closeExclusive(exceptName){
-    // Skills / Quests / Bank / Vendor / Smithing / Settings are exclusive between themselves.
-    for (const k of ["skills","quests","bank","vendor","smithing","settings"]){
+    // Skills / Quests / XP Lamp / Bank / Vendor / Smithing / Settings are exclusive between themselves.
+    for (const k of ["skills","quests","xpLamp","bank","vendor","smithing","settings"]){
       if (k !== exceptName) windowsOpen[k] = false;
     }
   }
@@ -3175,13 +3324,14 @@ const BGM_KEY = "classic_bgm_v1";
     }
 
     // Some windows should auto-open inventory.
-    if (name === "bank" || name === "smithing"){
+    if (name === "bank" || name === "smithing" || name === "xpLamp"){
       windowsOpen.inventory = true;
     }
 
     applyWindowVis();
     if (name === "quests") renderQuests();
     if (name === "smithing") renderSmithingUI();
+    if (name === "xpLamp") renderXpLampUI();
     saveWindowsUI();
   }
 
@@ -3470,7 +3620,8 @@ const BGM_KEY = "classic_bgm_v1";
     now,
     interactables,
     isWalkable,
-    setPathTo
+    setPathTo,
+    onRubXpLamp: openXpLampWindow
   });
 
   // ---------- Context menu ----------
@@ -3513,7 +3664,8 @@ const BGM_KEY = "classic_bgm_v1";
     withdrawFromBank,
     unequipSlot,
     getQuiverCount,
-    moveAmmoFromQuiverToInventory
+    moveAmmoFromQuiverToInventory,
+    onRubXpLamp: openXpLampWindow
   });
 
   attachInventoryInputHandlers({

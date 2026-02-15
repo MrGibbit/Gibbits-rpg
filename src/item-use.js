@@ -21,7 +21,8 @@ export function createItemUse(deps) {
     now,
     interactables,
     isWalkable,
-    setPathTo
+    setPathTo,
+    onRubXpLamp
   } = deps;
 
   function showBoneMealPlaceholder() {
@@ -39,6 +40,14 @@ export function createItemUse(deps) {
   }
 
   function handleUseOnSelf(toolId) {
+    if (toolId === "xp_lamp") {
+      if (typeof onRubXpLamp === "function") {
+        onRubXpLamp();
+      } else {
+        chatLine(`<span class="muted">Nothing interesting happens.</span>`);
+      }
+      return;
+    }
     if (toolId === "bone_meal") {
       showBoneMealPlaceholder();
       return;

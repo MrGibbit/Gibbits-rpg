@@ -26,7 +26,8 @@ export function attachInventoryContextMenus(deps) {
     withdrawFromBank,
     unequipSlot,
     getQuiverCount,
-    moveAmmoFromQuiverToInventory
+    moveAmmoFromQuiverToInventory,
+    onRubXpLamp
   } = deps;
 
   invGrid.addEventListener("contextmenu", (e) => {
@@ -70,13 +71,27 @@ export function attachInventoryContextMenus(deps) {
       opts.push({ label: "Equip", onClick: () => equipFromInv(idx) });
     }
 
-    opts.push({
-      label: "Use",
-      onClick: () => {
-        setUseState(s.id);
-        chatLine(`<span class="muted">You select the ${item?.name ?? s.id}.</span>`);
-      }
-    });
+    if (s.id === "xp_lamp") {
+      opts.push({
+        label: "Rub",
+        onClick: () => {
+          if (typeof onRubXpLamp === "function") {
+            onRubXpLamp();
+          } else {
+            setUseState(s.id);
+            chatLine(`<span class="muted">You select the ${item?.name ?? s.id}.</span>`);
+          }
+        }
+      });
+    } else {
+      opts.push({
+        label: "Use",
+        onClick: () => {
+          setUseState(s.id);
+          chatLine(`<span class="muted">You select the ${item?.name ?? s.id}.</span>`);
+        }
+      });
+    }
 
     opts.push({ type: "sep" });
     opts.push({ type: "sep" });

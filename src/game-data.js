@@ -117,7 +117,7 @@ export const QUEST_DEFS = [
     rewards: [
       "Warden Key Fragment",
       "150 Gold",
-      "XP lamp (planned)"
+      "XP Lamp (100 XP)"
     ]
   },
   {

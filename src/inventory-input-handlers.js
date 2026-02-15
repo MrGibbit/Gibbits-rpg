@@ -53,6 +53,11 @@ export function attachInventoryInputHandlers(deps) {
       return;
     }
 
+    if (inv[idx].id === "xp_lamp") {
+      handleUseOnSelf("xp_lamp");
+      return;
+    }
+
     if (canEquip(inv[idx].id)) {
       equipFromInv(idx);
     }
