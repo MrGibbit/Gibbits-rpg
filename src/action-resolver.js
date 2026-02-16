@@ -61,6 +61,27 @@ export function createActionResolver(deps) {
   const SMELTING_XP_TOP = 160;
   const SMELTING_XP_EXPONENT = 1.45;
   const MELEE_TRAIN_SKILLS = ["accuracy", "power", "defense"];
+  const FISHING_TIERS = [
+    { level: 85, itemId: "chaos_koi", xp: 86 },
+    { level: 70, itemId: "moonfish", xp: 72 },
+    { level: 55, itemId: "anglerfish", xp: 60 },
+    { level: 40, itemId: "swordfish", xp: 50 },
+    { level: 30, itemId: "catfish", xp: 42 },
+    { level: 20, itemId: "pufferfish", xp: 34 },
+    { level: 10, itemId: "clownfish", xp: 26 },
+    { level: 1, itemId: "goldfish", xp: 18 }
+  ];
+  const AUTO_COOK_ITEM_IDS = [
+    "rat_meat",
+    "chaos_koi",
+    "moonfish",
+    "anglerfish",
+    "swordfish",
+    "catfish",
+    "pufferfish",
+    "clownfish",
+    "goldfish"
+  ];
 
   function clampTier(value) {
     return Math.max(XP_TIER_MIN, Math.min(XP_TIER_MAX, value | 0));
@@ -492,11 +513,11 @@ export function createActionResolver(deps) {
       const useCookable = (useState.activeItemId && COOK_RECIPES[useState.activeItemId] && hasItem(useState.activeItemId))
         ? useState.activeItemId
         : null;
+      const autoCookId = AUTO_COOK_ITEM_IDS.find((itemId) => COOK_RECIPES[itemId] && hasItem(itemId)) || null;
 
       const cookId =
         useCookable ||
-        (hasItem("rat_meat") ? "rat_meat" :
-          (hasItem("goldfish") ? "goldfish" : null));
+        autoCookId;
 
       if (!cookId) {
         chatLine(`<span class="muted">The fire crackles.</span>`);
@@ -566,9 +587,14 @@ export function createActionResolver(deps) {
           return;
         }
 
-        if (!addGatherItemOrStop("goldfish", `<span class="warn">Inventory full: ${Items.goldfish.name}</span>`)) return;
-        emitQuestEvent({ type: "gather_item", itemId: "goldfish", skillKey: "fishing", qty: 1 });
-        finishGatherSuccess("fishing", 18, `<span class="good">You catch a gold fish.</span> (+18 XP)`);
+        const fishTier = FISHING_TIERS.find((tier) => lvlNow >= tier.level) || FISHING_TIERS[FISHING_TIERS.length - 1];
+        const catchId = fishTier.itemId;
+        const catchName = Items[catchId]?.name ?? catchId;
+        const catchXp = fishTier.xp;
+
+        if (!addGatherItemOrStop(catchId, `<span class="warn">Inventory full: ${catchName}</span>`)) return;
+        emitQuestEvent({ type: "gather_item", itemId: catchId, skillKey: "fishing", qty: 1 });
+        finishGatherSuccess("fishing", catchXp, `<span class="good">You catch ${catchName}.</span> (+${catchXp} XP)`);
       });
 
       return;

@@ -1,6 +1,13 @@
 export const COOK_RECIPES = {
   rat_meat: { out: "cooked_rat_meat", xp: 12, verb: "cook some meat" },
   goldfish: { out: "goldfish_cracker", xp: 12, verb: "cook a gold fish cracker" },
+  clownfish: { out: "cooked_clownfish", xp: 16, verb: "cook a clownfish" },
+  pufferfish: { out: "cooked_pufferfish", xp: 20, verb: "cook a pufferfish" },
+  catfish: { out: "cooked_catfish", xp: 24, verb: "cook a catfish" },
+  swordfish: { out: "cooked_swordfish", xp: 28, verb: "cook a swordfish" },
+  anglerfish: { out: "cooked_anglerfish", xp: 34, verb: "cook an anglerfish" },
+  moonfish: { out: "cooked_moonfish", xp: 40, verb: "cook a moonfish" },
+  chaos_koi: { out: "cooked_chaos_koi", xp: 48, verb: "cook a chaos koi" },
 };
 
 export const CLASS_DEFS = {

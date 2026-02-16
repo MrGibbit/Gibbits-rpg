@@ -553,6 +553,41 @@ function levelStrokeForCls(cls){
     return true;
   }
 
+  function fishIcon(main, belly, fin = "rgb(186,111,33)"){
+    return `<svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block">
+      <rect x="4" y="6" width="7" height="1" fill="rgb(40,22,16)"/>
+      <rect x="3" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+      <rect x="11" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+      <rect x="4" y="9" width="7" height="1" fill="rgb(40,22,16)"/>
+      <rect x="4" y="7" width="7" height="2" fill="${main}"/>
+      <rect x="5" y="7" width="5" height="2" fill="${belly}"/>
+      <rect x="2" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+      <rect x="3" y="7" width="1" height="1" fill="${main}"/>
+      <rect x="3" y="8" width="1" height="1" fill="${belly}"/>
+      <rect x="9" y="7" width="1" height="1" fill="rgb(40,22,16)"/>
+      <rect x="6" y="9" width="2" height="1" fill="${fin}"/>
+    </svg>`;
+  }
+
+  function cookedFishIcon(main = "rgb(146,78,38)", belly = "rgb(180,102,48)"){
+    return `<svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block">
+      <rect x="4" y="6" width="7" height="1" fill="rgb(40,22,16)"/>
+      <rect x="3" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+      <rect x="11" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+      <rect x="4" y="9" width="7" height="1" fill="rgb(40,22,16)"/>
+      <rect x="4" y="7" width="7" height="2" fill="${main}"/>
+      <rect x="5" y="7" width="5" height="2" fill="${belly}"/>
+      <rect x="2" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+      <rect x="3" y="7" width="1" height="1" fill="${main}"/>
+      <rect x="3" y="8" width="1" height="1" fill="${belly}"/>
+      <rect x="6" y="7" width="1" height="2" fill="rgb(84,42,20)"/>
+      <rect x="8" y="7" width="1" height="2" fill="rgb(84,42,20)"/>
+      <rect x="9" y="7" width="1" height="1" fill="rgb(40,22,16)"/>
+      <rect x="6" y="4" width="1" height="1" fill="rgb(226,232,240)"/>
+      <rect x="9" y="4" width="1" height="1" fill="rgb(226,232,240)"/>
+    </svg>`;
+  }
+
   const Items = {
     axe:  { id:"axe",  name:"Crude Axe",  stack:false, icon:icon("axe", "#8f6a3b", "#4a321d", "#24160d"), flatIcon:flatIcon("axe") },
     pick: { id:"pick", name:"Crude Pick", stack:false, icon:icon("pick", "#6e7f93", "#3a4558", "#1d2430"), flatIcon:flatIcon("pick") },
@@ -709,6 +744,145 @@ goldfish_cracker: {
     <rect x="9" y="7" width="1" height="1" fill="rgb(40,22,16)"/>
     <rect x="7" y="9" width="1" height="1" fill="rgb(40,22,16)"/>
   </svg>`
+},
+
+clownfish: {
+  id:"clownfish",
+  name:"Clownfish",
+  heal: 4,
+  stack:true,
+  icon:`<svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block">
+    <rect x="4" y="6" width="7" height="1" fill="rgb(40,22,16)"/>
+    <rect x="3" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+    <rect x="11" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+    <rect x="4" y="9" width="7" height="1" fill="rgb(40,22,16)"/>
+    <rect x="4" y="7" width="7" height="2" fill="rgb(251,146,60)"/>
+    <rect x="5" y="7" width="5" height="2" fill="rgb(56,189,248)"/>
+    <rect x="2" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+    <rect x="3" y="7" width="1" height="1" fill="rgb(251,146,60)"/>
+    <rect x="3" y="8" width="1" height="1" fill="rgb(56,189,248)"/>
+    <rect x="9" y="7" width="1" height="1" fill="rgb(40,22,16)"/>
+    <rect x="6" y="9" width="2" height="1" fill="rgb(59,130,246)"/>
+  </svg>`
+},
+
+cooked_clownfish: {
+  id:"cooked_clownfish",
+  name:"Cooked Clownfish",
+  heal: 12,
+  stack:true,
+  icon:`<svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block">
+    <rect x="4" y="6" width="7" height="1" fill="rgb(40,22,16)"/>
+    <rect x="3" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+    <rect x="11" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+    <rect x="4" y="9" width="7" height="1" fill="rgb(40,22,16)"/>
+    <rect x="4" y="7" width="7" height="2" fill="rgb(146,78,38)"/>
+    <rect x="5" y="7" width="5" height="2" fill="rgb(180,102,48)"/>
+    <rect x="2" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
+    <rect x="3" y="7" width="1" height="1" fill="rgb(146,78,38)"/>
+    <rect x="3" y="8" width="1" height="1" fill="rgb(180,102,48)"/>
+    <rect x="6" y="7" width="1" height="2" fill="rgb(84,42,20)"/>
+    <rect x="8" y="7" width="1" height="2" fill="rgb(84,42,20)"/>
+    <rect x="9" y="7" width="1" height="1" fill="rgb(40,22,16)"/>
+    <rect x="6" y="4" width="1" height="1" fill="rgb(226,232,240)"/>
+    <rect x="9" y="4" width="1" height="1" fill="rgb(226,232,240)"/>
+  </svg>`
+},
+
+pufferfish: {
+  id:"pufferfish",
+  name:"Pufferfish",
+  heal: 6,
+  stack:true,
+  icon: fishIcon("rgb(234,179,8)", "rgb(253,224,71)", "rgb(168,85,247)")
+},
+
+cooked_pufferfish: {
+  id:"cooked_pufferfish",
+  name:"Cooked Pufferfish",
+  heal: 16,
+  stack:true,
+  icon: cookedFishIcon("rgb(158,94,46)", "rgb(201,124,62)")
+},
+
+catfish: {
+  id:"catfish",
+  name:"Catfish",
+  heal: 8,
+  stack:true,
+  icon: fishIcon("rgb(100,116,139)", "rgb(148,163,184)", "rgb(30,64,175)")
+},
+
+cooked_catfish: {
+  id:"cooked_catfish",
+  name:"Cooked Catfish",
+  heal: 20,
+  stack:true,
+  icon: cookedFishIcon("rgb(128,74,40)", "rgb(166,98,52)")
+},
+
+swordfish: {
+  id:"swordfish",
+  name:"Swordfish",
+  heal: 10,
+  stack:true,
+  icon: fishIcon("rgb(14,116,144)", "rgb(125,211,252)", "rgb(56,189,248)")
+},
+
+cooked_swordfish: {
+  id:"cooked_swordfish",
+  name:"Cooked Swordfish",
+  heal: 24,
+  stack:true,
+  icon: cookedFishIcon("rgb(170,88,48)", "rgb(212,120,62)")
+},
+
+anglerfish: {
+  id:"anglerfish",
+  name:"Anglerfish",
+  heal: 12,
+  stack:true,
+  icon: fishIcon("rgb(82,82,91)", "rgb(161,161,170)", "rgb(234,88,12)")
+},
+
+cooked_anglerfish: {
+  id:"cooked_anglerfish",
+  name:"Cooked Anglerfish",
+  heal: 30,
+  stack:true,
+  icon: cookedFishIcon("rgb(156,82,36)", "rgb(194,108,50)")
+},
+
+moonfish: {
+  id:"moonfish",
+  name:"Moonfish",
+  heal: 14,
+  stack:true,
+  icon: fishIcon("rgb(99,102,241)", "rgb(196,181,253)", "rgb(168,85,247)")
+},
+
+cooked_moonfish: {
+  id:"cooked_moonfish",
+  name:"Cooked Moonfish",
+  heal: 36,
+  stack:true,
+  icon: cookedFishIcon("rgb(148,78,44)", "rgb(188,110,60)")
+},
+
+chaos_koi: {
+  id:"chaos_koi",
+  name:"Chaos Koi",
+  heal: 16,
+  stack:true,
+  icon: fishIcon("rgb(220,38,38)", "rgb(251,146,60)", "rgb(250,204,21)")
+},
+
+cooked_chaos_koi: {
+  id:"cooked_chaos_koi",
+  name:"Cooked Chaos Koi",
+  heal: 44,
+  stack:true,
+  icon: cookedFishIcon("rgb(176,72,34)", "rgb(222,106,46)")
 },
 
 
