@@ -335,6 +335,10 @@ export function createMobAI(deps) {
           chatLine(`<span class="bad">Warden's Brand absorbs the blow.</span>`);
         }
       }
+      if (roll.blocked) {
+        chatLine(`<span class="good">Your armor blocks the blow.</span>`);
+        continue;
+      }
       if (roll.dmg <= 0) {
         if (!(roll.hit && roll.brandProc)) {
           chatLine(`<span class="muted">${m.name} misses you.</span>`);

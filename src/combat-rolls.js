@@ -29,6 +29,12 @@ export function createCombatRolls(deps) {
     return 1 + Math.floor(Math.random() * mh);
   }
 
+  function damageReductionFromGearDef(gearDef) {
+    const g = Math.max(0, gearDef | 0);
+    // Make armor tiers feel distinct: crude set (6 DEF) blocks 1, iron set (10 DEF) blocks 2.
+    return Math.floor(g / 5);
+  }
+
   function equippedItemIds() {
     if (!equipment || typeof equipment !== "object") return [];
     return Object.values(equipment).filter((id) => typeof id === "string" && id.length > 0);
@@ -106,7 +112,8 @@ export function createCombatRolls(deps) {
     const def = MOB_DEFS[mob.type] ?? {};
     const att = mobLvl(mob, "accuracy");
     const off = mobLvl(mob, "power");
-    const playerDef = lvlOf("defense") + getGearBonuses("any").def;
+    const gearDef = getGearBonuses("any").def;
+    const playerDef = lvlOf("defense") + gearDef;
 
     const hit = rollHit(att, playerDef);
     const maxHit = Math.max(1, def.maxHit ?? maxHitFromOffense(off));
@@ -116,7 +123,12 @@ export function createCombatRolls(deps) {
       dmg = Math.max(0, dmg - 1);
       brandProc = true;
     }
-    return { hit, dmg, maxHit, brandProc };
+    const armorReduction = (dmg > 0) ? damageReductionFromGearDef(gearDef) : 0;
+    if (armorReduction > 0) {
+      dmg = Math.max(0, dmg - armorReduction);
+    }
+    const blocked = (hit && dmg <= 0 && !brandProc);
+    return { hit, dmg, maxHit, brandProc, blocked };
   }
 
   return {
