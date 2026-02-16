@@ -61,15 +61,18 @@ export function createActionResolver(deps) {
   const SMELTING_XP_TOP = 160;
   const SMELTING_XP_EXPONENT = 1.45;
   const MELEE_TRAIN_SKILLS = ["accuracy", "power", "defense"];
+  const FISHING_CATCH_CHANCE_MIN = 0.34;
+  const FISHING_CATCH_CHANCE_PER_LEVEL = 0.035;
+  const FISHING_CATCH_CHANCE_MAX = 0.82;
   const FISHING_TIERS = [
-    { level: 85, itemId: "chaos_koi", xp: 86 },
-    { level: 70, itemId: "moonfish", xp: 72 },
-    { level: 55, itemId: "anglerfish", xp: 60 },
-    { level: 40, itemId: "swordfish", xp: 50 },
-    { level: 30, itemId: "catfish", xp: 42 },
-    { level: 20, itemId: "pufferfish", xp: 34 },
-    { level: 10, itemId: "clownfish", xp: 26 },
-    { level: 1, itemId: "goldfish", xp: 18 }
+    { level: 85, itemId: "chaos_koi", xp: 74 },
+    { level: 70, itemId: "moonfish", xp: 61 },
+    { level: 55, itemId: "anglerfish", xp: 51 },
+    { level: 40, itemId: "swordfish", xp: 43 },
+    { level: 30, itemId: "catfish", xp: 36 },
+    { level: 20, itemId: "pufferfish", xp: 29 },
+    { level: 10, itemId: "clownfish", xp: 22 },
+    { level: 1, itemId: "goldfish", xp: 15 }
   ];
   const AUTO_COOK_ITEM_IDS = [
     "rat_meat",
@@ -581,7 +584,11 @@ export function createActionResolver(deps) {
         if (stopIfInventoryFull("Inventory full.")) return;
 
         const lvlNow = levelFromXP(Skills.fishing.xp);
-        const chance = clamp(0.35 + lvlNow * 0.05, 0.35, 0.90);
+        const chance = clamp(
+          FISHING_CATCH_CHANCE_MIN + lvlNow * FISHING_CATCH_CHANCE_PER_LEVEL,
+          FISHING_CATCH_CHANCE_MIN,
+          FISHING_CATCH_CHANCE_MAX
+        );
         if (Math.random() > chance) {
           chatLine(`<span class="muted">You fail to catch anything.</span>`);
           return;
