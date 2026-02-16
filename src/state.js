@@ -378,7 +378,8 @@ export const equipment = {
 
 // ---------- Melee Training selector ----------
 export const meleeState = {
-  selected: "accuracy"
+  selected: ["accuracy"],
+  splitCursor: 0
 };
 
 // ---------- Entities ----------

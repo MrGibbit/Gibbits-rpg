@@ -1080,13 +1080,45 @@ function consumeFoodFromInv(invIndex){
 
   // ---------- Melee Training selector ----------
   const MELEE_TRAIN_KEY = "classic_melee_training_v1";
+  const MELEE_TRAIN_SKILLS = ["accuracy", "power", "defense"];
+
+  function normalizeMeleeTrainingSelection(rawSelection){
+    const raw = Array.isArray(rawSelection) ? rawSelection : [rawSelection];
+    const picked = new Set();
+    for (const key of raw){
+      if (key === "accuracy" || key === "power" || key === "defense") picked.add(key);
+    }
+    const out = [];
+    for (const key of MELEE_TRAIN_SKILLS){
+      if (picked.has(key)) out.push(key);
+    }
+    if (!out.length) out.push("accuracy");
+    return out;
+  }
+
+  function getMeleeTrainingSelection(){
+    const selected = normalizeMeleeTrainingSelection(meleeState.selected);
+    meleeState.selected = selected;
+    return selected;
+  }
 
   function loadMeleeTraining(){
-    const v = localStorage.getItem(MELEE_TRAIN_KEY);
-    if (v === "accuracy" || v === "power" || v === "defense") meleeState.selected = v;
-    else meleeState.selected = "accuracy";
+    const raw = localStorage.getItem(MELEE_TRAIN_KEY);
+    let parsed = raw;
+    if (raw){
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = raw;
+      }
+    }
+    meleeState.selected = normalizeMeleeTrainingSelection(parsed);
+    meleeState.splitCursor = 0;
   }
-  function saveMeleeTraining(){ localStorage.setItem(MELEE_TRAIN_KEY, meleeState.selected); }
+  function saveMeleeTraining(){
+    const selected = getMeleeTrainingSelection();
+    localStorage.setItem(MELEE_TRAIN_KEY, JSON.stringify(selected));
+  }
 
   // ---------- Quests ----------
   const worldUpgrades = { smithBankUnlocked: false };
@@ -1894,15 +1926,20 @@ const BGM_KEY = "classic_bgm_v1";
   function renderMeleeTrainingUI(){
     const seg = document.getElementById("meleeTrainingSeg");
     if (!seg) return;
-    const selected = meleeState.selected;
+    const selected = getMeleeTrainingSelection();
     for (const btn of seg.querySelectorAll("button[data-melee]")){
       const key = btn.dataset.melee;
-      btn.classList.toggle("active", key === selected);
+      btn.classList.toggle("active", !!key && selected.includes(key));
       if (btn.dataset.bound === "1") continue;
       btn.dataset.bound = "1";
       btn.addEventListener("click", ()=>{
         if (!key) return;
-        meleeState.selected = key;
+        const current = getMeleeTrainingSelection();
+        const active = current.includes(key);
+        if (active && current.length === 1) return;
+        meleeState.selected = active
+          ? current.filter((skillKey) => skillKey !== key)
+          : [...current, key];
         saveMeleeTraining();
         renderMeleeTrainingUI();
       });

@@ -60,6 +60,7 @@ export function createActionResolver(deps) {
   const SMELTING_XP_BASE = 20;
   const SMELTING_XP_TOP = 160;
   const SMELTING_XP_EXPONENT = 1.45;
+  const MELEE_TRAIN_SKILLS = ["accuracy", "power", "defense"];
 
   function clampTier(value) {
     return Math.max(XP_TIER_MIN, Math.min(XP_TIER_MAX, value | 0));
@@ -92,6 +93,44 @@ export function createActionResolver(deps) {
   function readMiningXp(row) {
     if (Number.isFinite(row?.xp)) return Math.max(1, row.xp | 0);
     return xpFromTier(readTier(row), MINING_XP_BASE, MINING_XP_TOP, MINING_XP_EXPONENT);
+  }
+
+  function getMeleeTrainingSkills() {
+    const raw = Array.isArray(meleeState?.selected) ? meleeState.selected : [meleeState?.selected];
+    const picked = new Set();
+    for (const key of raw) {
+      if (key === "accuracy" || key === "power" || key === "defense") picked.add(key);
+    }
+    const out = [];
+    for (const key of MELEE_TRAIN_SKILLS) {
+      if (picked.has(key)) out.push(key);
+    }
+    if (!out.length) out.push("accuracy");
+    return out;
+  }
+
+  function awardMeleeXpSplit(totalXp) {
+    const xp = Math.max(0, totalXp | 0);
+    if (!xp) return;
+
+    const selected = getMeleeTrainingSkills();
+    const count = selected.length;
+    const each = Math.floor(xp / count);
+    const rem = xp % count;
+
+    if (each > 0) {
+      for (const skillKey of selected) addXP(skillKey, each);
+    }
+
+    if (rem > 0) {
+      const start = Math.max(0, meleeState?.splitCursor | 0) % count;
+      for (let i = 0; i < rem; i++) {
+        addXP(selected[(start + i) % count], 1);
+      }
+      if (meleeState && typeof meleeState === "object") {
+        meleeState.splitCursor = (start + rem) % count;
+      }
+    }
   }
 
   const DEFAULT_SMELTING_TIERS = [
@@ -704,7 +743,7 @@ export function createActionResolver(deps) {
       addXP("health", dmg);
 
       if (style === "melee") {
-        addXP(meleeState.selected, dmg);
+        awardMeleeXpSplit(dmg);
       } else if (style === "ranged") {
         addXP("ranged", dmg);
       } else {
