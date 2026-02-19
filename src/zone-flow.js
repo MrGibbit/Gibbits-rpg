@@ -730,14 +730,6 @@ export function createZoneFlow(deps) {
     seedMobs();
     seedInteractables();
 
-    // [DEBUG] Log diagnostic info after seeding
-    const activeZoneAfterSeed = getActiveZone();
-    const projectNpcCount = (interactables || []).filter(it => it.type === 'project_npc').length;
-    const projectNpcIds = (interactables || []).filter(it => it.type === 'project_npc').map(it => it.npcId);
-    if (projectNpcCount > 0) {
-      console.log(`[DEBUG NEW GAME] zone=${activeZoneAfterSeed} interactablesTotal=${(interactables || []).length} projectNpcCount=${projectNpcCount} npcIds=[${projectNpcIds.join(',')}]`);
-    }
-    
     seedDungeonZone({ forcePopulateMobs: true });
 
     player.x = startCastle.x0 + 6;
