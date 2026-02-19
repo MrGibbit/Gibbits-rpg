@@ -36,6 +36,14 @@ import { createActionResolver } from "./src/action-resolver.js";
 import { createMinimap } from "./src/minimap.js";
 import { createXPOrbs } from "./src/xp-orbs.js";
 import { createItemUse } from "./src/item-use.js";
+import { initItemUse } from "./src/init-item-use.js";
+import { initInventoryUi } from "./src/init-inventory-ui.js";
+import { initQuestSystem } from "./src/init-quest-system.js";
+import { createProjectNpcHandlers, TOWN_PROJECT_NPC } from "./src/project-npc.js";
+import { buildBaseInteractables as buildBaseInteractablesModule, seedInteractables as seedInteractablesModule } from "./src/interactable-seeding.js";
+import { createRenownGrants } from "./src/renown-grants.js";
+import { initHud } from "./src/hud.js";
+import { seedResources as seedResourcesModule } from "./src/resource-seeding.js";
 import { createContextMenuUI } from "./src/context-menu-ui.js";
 import { attachInventoryContextMenus } from "./src/inventory-context-menus.js";
 import { attachInventoryInputHandlers } from "./src/inventory-input-handlers.js";
@@ -93,7 +101,6 @@ stampVendorShopLayout({ map, width: W, height: H, startCastle, vendorShop });
 
   function chatLine(html) {
     const nearBottom = (chatLogEl.scrollTop + chatLogEl.clientHeight) >= (chatLogEl.scrollHeight - 24);
-
     const p = document.createElement("p");
     p.innerHTML = html;
     chatLogEl.appendChild(p);
@@ -124,35 +131,6 @@ stampVendorShopLayout({ map, width: W, height: H, startCastle, vendorShop });
   const HEARTH_CAULDRON_TILE = { x: 4, y: 16 };
   const SMITHING_BANK_TILE = { x: SMITHING_ANVIL_TILE.x + 3, y: SMITHING_ANVIL_TILE.y + 1 };
 
-  // ========== PROJECT NPC CONFIGURATION ==========
-  // Central source-of-truth for all Project NPCs.
-  // Note: Coordinates will be determined at placement time from game constants
-  const TOWN_PROJECT_NPC = {
-    blacksmith_torren: {
-      name: "Blacksmith Torren",
-      viewMode: "single",
-      focusProjectId: "storage",
-      variant: "torren"
-    },
-    dock_foreman: {
-      name: "Foreman Garrick",
-      viewMode: "single",
-      focusProjectId: "dock",
-      variant: "garrick"
-    },
-    hearth_keeper: {
-      name: "Mara Emberward",
-      viewMode: "single",
-      focusProjectId: "hearth",
-      variant: "mara"
-    },
-    mayor: {
-      name: "Mayor Alden Fairholt",
-      viewMode: "all",
-      focusProjectId: null,
-      variant: "mayor"
-    }
-  };
 
   // Zoom
   function setZoom(z) {
@@ -1589,127 +1567,26 @@ function consumeFoodFromInv(invIndex){
   }
 
   // ========== RENOWN GRANTS SYSTEM (Quest-based & Warden-based) ==========
-  const WARDEN_RENOWN_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
-
-  const renownGrants = {
-    quests: {},     // { quest_id: true } - idempotent flags
-    questAmounts: {}, // { quest_id: amount } - amount granted so far
-    wardens: {}     // { warden_key: { lastGrantedAt: <epoch_ms> } } - timestamp-based cooldown
-  };
-  let questRenownSnapshotMissing = false;
-  let questRenownNeedsReconcile = false;
-
-  function resetRenownGrants() {
-    renownGrants.quests = {};
-    renownGrants.questAmounts = {};
-    renownGrants.wardens = {};
-  }
-
-  function getRenownGrantsSnapshot() {
-    return {
-      quests: { ...renownGrants.quests },
-      questAmounts: { ...renownGrants.questAmounts },
-      wardens: { ...renownGrants.wardens }
-    };
-  }
-
-  function applyRenownGrantsSnapshot(data) {
-    if (!data || typeof data !== "object") {
-      resetRenownGrants();
-      return;
-    }
-    // Restore quest grants
-    renownGrants.quests = (data.quests && typeof data.quests === "object") 
-      ? { ...data.quests } 
-      : {};
-    // Restore quest amounts
-    renownGrants.questAmounts = (data.questAmounts && typeof data.questAmounts === "object")
-      ? { ...data.questAmounts }
-      : {};
-    // Restore warden timestamps
-    renownGrants.wardens = (data.wardens && typeof data.wardens === "object") 
-      ? { ...data.wardens } 
-      : {};
-  }
-
-  /**
-   * Grant renown for completing a quest (idempotent)
-   */
-  function grantQuestRenown(questId) {
-    const questId_str = String(questId || "");
-    if (!questId_str) return false;
-
-    const rewardCfg = QUEST_RENOWN_REWARDS[questId_str];
-    if (!rewardCfg) return false; // Unknown quest
-
-    const priorAmount = (renownGrants.questAmounts?.[questId_str] | 0);
-    const targetAmount = rewardCfg.amount | 0;
-    const delta = Math.max(0, targetAmount - priorAmount);
-
-    // Check if already granted
-    if (renownGrants.quests[questId_str] && delta <= 0) {
-      return false; // Already granted, do nothing
-    }
-
-    // Mark as granted
-    renownGrants.quests[questId_str] = true;
-    renownGrants.questAmounts[questId_str] = Math.max(targetAmount, priorAmount);
-
-    if (delta <= 0) return false;
-
-    // Grant renown
-    const message = priorAmount > 0
-      ? `Quest "${questId_str.replace(/_/g, " ")}" renown updated.`
-      : `Quest "${questId_str.replace(/_/g, " ")}" completed.`;
-    const success = grantTownRenown(rewardCfg.townId, delta, message);
-
-    return success;
-  }
-
-  /**
-   * Grant renown for defeating a warden (repeatable with cooldown)
-   */
-  function grantWardenDefeatRenown(wardenKey = "skeleton_warden") {
-    const key_str = String(wardenKey || "skeleton_warden");
-    const cfg = WARDEN_RENOWN_CONFIG[key_str];
-    if (!cfg) return false; // Unknown warden
-
-    const now_ms = now();
-    const warden_state = renownGrants.wardens[key_str] || {};
-    const lastGrantedAt = warden_state.lastGrantedAt || 0;
-    const msSinceLastGrant = now_ms - lastGrantedAt;
-
-    // If firstKillOnly is set, check if already granted
-    if (cfg.firstKillOnly && renownGrants.wardens[key_str]?.granted) {
-      const remainingMs = cfg.cooldownMs - msSinceLastGrant;
-      const remainingSec = Math.ceil(remainingMs / 1000);
-      if (remainingMs > 0) {
-        chatLine(`<span class="muted">Rivermoor renown can be earned from the ${key_str.replace(/_/g, " ")} again in ~${remainingSec}s.</span>`);
-      }
-      return false;
-    }
-
-    // Check cooldown (if not first kill only)
-    if (!cfg.firstKillOnly && msSinceLastGrant < cfg.cooldownMs) {
-      // Still in cooldown, don't grant
-      const remainingMs = cfg.cooldownMs - msSinceLastGrant;
-      const remainingSec = Math.ceil(remainingMs / 1000);
-      chatLine(`<span class="muted">Rivermoor renown can be earned from the ${key_str.replace(/_/g, " ")} again in ~${remainingSec}s.</span>`);
-      return false;
-    }
-
-    // Update timestamp and mark as granted
-    renownGrants.wardens[key_str] = {
-      lastGrantedAt: now_ms,
-      granted: cfg.firstKillOnly
-    };
-
-    // Grant renown
-    const message = `${key_str.replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase())} defeated.`;
-    const success = grantTownRenown(cfg.townId, cfg.amount, message);
-
-    return success;
-  }
+  const {
+    resetRenownGrants,
+    getRenownGrantsSnapshot,
+    applyRenownGrantsSnapshot,
+    getQuestRenownSnapshot,
+    applyQuestRenownSnapshot,
+    grantQuestRenown,
+    grantWardenDefeatRenown,
+    getQuestGrantFlags,
+    clearQuestGrantFlags,
+    getWardenGrantFlags,
+    clearWardenGrantFlags,
+    questRenownState
+  } = createRenownGrants({
+    now,
+    chatLine,
+    grantTownRenown,
+    questRenownRewards: QUEST_RENOWN_REWARDS,
+    wardenRenownConfig: WARDEN_RENOWN_CONFIG
+  });
 
   // Town system moved to modules: src/town-system.js, src/town-projects.js, src/town-donations.js
   // Wrapper functions for persistence (module functions renamed for backward compatibility)
@@ -1733,23 +1610,6 @@ function consumeFoodFromInv(invIndex){
   }
 
   // Renown grant tracking (quest-based and warden-based)
-  function getQuestRenownSnapshot() {
-    return getRenownGrantsSnapshot();
-  }
-  function applyQuestRenownSnapshot(data) {
-    applyRenownGrantsSnapshot(data);
-    const questBag = renownGrants.quests && typeof renownGrants.quests === "object" ? renownGrants.quests : null;
-    const questAmountsBag = renownGrants.questAmounts && typeof renownGrants.questAmounts === "object"
-      ? renownGrants.questAmounts
-      : null;
-    questRenownSnapshotMissing = !questBag || Object.keys(questBag).length === 0
-      || !questAmountsBag || Object.keys(questAmountsBag).length === 0;
-    questRenownNeedsReconcile = Object.entries(QUEST_RENOWN_REWARDS || {}).some(([questId, rewardCfg]) => {
-      const targetAmount = rewardCfg?.amount | 0;
-      const grantedAmount = questAmountsBag?.[questId] | 0;
-      return grantedAmount < targetAmount;
-    });
-  }
   function getWardenDefeatSnapshot() {
     // Warden data is now integrated into renownGrants
     return null;
@@ -1757,9 +1617,8 @@ function consumeFoodFromInv(invIndex){
   function applyWardenDefeatSnapshot(data) {
     // Warden data is now integrated into renownGrants
   }
-
   const {
-    questList: QUESTS,
+    QUESTS,
     getQuestDefById,
     resetQuestProgress,
     getQuestProgress,
@@ -1771,13 +1630,14 @@ function consumeFoodFromInv(invIndex){
     isQuestObjectiveComplete,
     hasQuestObjectiveToken,
     isQuestReadyToComplete,
-    completeQuest: _completeQuest_original,
-    trackQuestEvent: _trackQuestEvent_original,
+    completeQuest,
+    trackQuestEvent,
     getQuestSnapshot,
-    applyQuestSnapshot: _applyQuestSnapshot_original,
+    applyQuestSnapshot,
     handleQuartermasterTalk,
     npcHasPendingQuestMarker
-  } = createQuestSystem({
+  } = initQuestSystem({
+    createQuestSystem,
     questDefs: QUEST_DEFS,
     now,
     chatLine,
@@ -1788,53 +1648,10 @@ function consumeFoodFromInv(invIndex){
     addGroundLoot,
     player,
     addGold,
-    onQuestCompleted: (questId) => {
-      grantQuestRenown(questId);
-      if (String(questId) === "first_watch") {
-        chatLine("<span class=\"muted\">The people of Rivermoor seem to trust you more. Perhaps the Mayor could use your help rebuilding the town.</span>");
-      }
-    }
+    grantQuestRenown,
+    questRenownRewards: QUEST_RENOWN_REWARDS,
+    questRenownState
   });
-
-  function grantRetroactiveQuestRenown() {
-    const rewardKeys = Object.keys(QUEST_RENOWN_REWARDS || {});
-    if (!rewardKeys.length) return;
-    let applied = false;
-    for (const questId of rewardKeys) {
-      if (isQuestCompleted(questId)) {
-        applied = grantQuestRenown(questId) || applied;
-      }
-    }
-    if (applied) {
-      chatLine("<span class=\"muted\">Rivermoor recognizes your past deeds. Renown has been updated.</span>");
-    }
-  }
-
-  const applyQuestSnapshot = (data) => {
-    _applyQuestSnapshot_original(data);
-    if (questRenownSnapshotMissing || questRenownNeedsReconcile) {
-      questRenownSnapshotMissing = false;
-      questRenownNeedsReconcile = false;
-      grantRetroactiveQuestRenown();
-    }
-  };
-
-  // Create wrapped versions for PASS 2 & PASS 3
-  const completeQuest = (questId) => {
-    const result = _completeQuest_original(questId);
-    if (result) {
-      grantQuestRenown(questId);
-      if (String(questId) === "first_watch") {
-        chatLine("<span class=\"muted\">The people of Rivermoor seem to trust you more. Perhaps the Mayor could use your help rebuilding the town.</span>");
-      }
-    }
-    return result;
-  };
-
-  const trackQuestEvent = (ev) => {
-    const result = _trackQuestEvent_original(ev);
-    return result;
-  };
 
   function unlockSmithingBankUpgrade(){
     if (isSmithBankUnlocked()) return false;
@@ -1862,38 +1679,16 @@ function consumeFoodFromInv(invIndex){
   }
 
   // ========== PROJECT NPC INTERACTION ==========
-  function openTownProjectsFromNpc(npcId) {
-    const config = TOWN_PROJECT_NPC[npcId];
-    if (!config) {
-      chatLine(`<span class="muted">They have nothing special to say.</span>`);
-      return;
-    }
-
-    // Emit chat message based on NPC
-    if (npcId === "blacksmith_torren") {
-      chatLine(`<span class="muted">Blacksmith Torren:</span> Let's see what we can build for Rivermoor. Here are the projects.`);
-    } else if (npcId === "dock_foreman") {
-      chatLine(`<span class="muted">Foreman Garrick Tidewell:</span> The dock is crucial for Rivermoor. Let me show you our progress.`);
-    } else if (npcId === "hearth_keeper") {
-      chatLine(`<span class="muted">Mara Emberward:</span> The hearth represents the heart of our community. See what we're building here.`);
-    } else if (npcId === "mayor") {
-      chatLine(`<span class="muted">Mayor Alden Fairholt:</span> Let me show you all the improvements we're working on for Rivermoor.`);
-    }
-
-    // Ensure projects are unlocked based on current renown before rendering
-    checkProjectUnlocks("rivermoor");
-
-    openWindow("townProjects");
-    renderTownProjectsUI({
-      viewMode: config.viewMode,
-      focusProjectId: config.focusProjectId,
-      openedByNpcId: npcId
-    });
-  }
-
-  function talkBlacksmithTorren(){
-    openTownProjectsFromNpc("blacksmith_torren");
-  }
+  const {
+    openTownProjectsFromNpc,
+    talkBlacksmithTorren,
+    handleProjectNpcTalk
+  } = createProjectNpcHandlers({
+    chatLine,
+    checkProjectUnlocks,
+    openWindow,
+    renderTownProjectsUI
+  });
 
   function handleQuestNpcTalk(npcId){
     const id = String(npcId || "");
@@ -1908,82 +1703,34 @@ function consumeFoodFromInv(invIndex){
     chatLine(`<span class="muted">They nod, but have nothing for you.</span>`);
   }
 
-  function handleProjectNpcTalk(npcId) {
-    const id = String(npcId || "");
-    openTownProjectsFromNpc(id);
-  }
 
   // ---------- HP / HUD ----------
-  const hudNameEl = document.getElementById("hudName");
-  const hudClassEl = document.getElementById("hudClass");
-  const hudHPTextEl = document.getElementById("hudHPText");
-  const hudHPBarEl = document.getElementById("hudHPBar");
-  const hudQuiverTextEl = document.getElementById("hudQuiverText");
-  const hudGoldTextEl = document.getElementById("hudGoldText");
-const hudCombatTextEl = document.getElementById("hudCombatText");
-
-  const coordPlayerEl = document.getElementById("coordPlayer");
-  const coordMouseEl  = document.getElementById("coordMouse");
-
-
-
-  function recalcMaxHPFromHealth(){
-    const healthLvl = levelFromXP(Skills.health.xp);
-    const newMax = BASE_HP + (healthLvl - 1) * HP_PER_LEVEL;
-    if (player.maxHp !== newMax){
-      player.maxHp = newMax;
-      player.hp = clamp(player.hp, 0, player.maxHp);
-    }
-    renderHPHUD();
-  }
-
-  function renderHPHUD(){
-    hudNameEl.textContent = player.name;
-    hudClassEl.textContent = player.class;
-    hudHPTextEl.textContent = `HP ${player.hp} / ${player.maxHp}`;
-    hudHPBarEl.style.width = `${(player.maxHp>0 ? (player.hp/player.maxHp) : 0) * 100}%`;
-    if (hudGoldTextEl) hudGoldTextEl.textContent = `Gold: ${getGold()}`;
-    hudQuiverTextEl.textContent = `Quiver: ${getQuiverCount()}`;
-if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLevel(Skills)}`;
-
-  }
-  function updateCoordsHUD(){
-    if (!coordPlayerEl && !coordMouseEl) return;
-
-    if (coordPlayerEl){
-      const p = `${player.x}, ${player.y}`;
-      if (coordPlayerEl.textContent !== p) coordPlayerEl.textContent = p;
-    }
-
-    if (!mouse.seen){
-      if (coordMouseEl && coordMouseEl.textContent !== "â€”") coordMouseEl.textContent = "â€”";
-      return;
-    }
-
-    const worldX = (mouse.x/VIEW_W)*viewWorldW() + camera.x;
-    const worldY = (mouse.y/VIEW_H)*viewWorldH() + camera.y;
-    const tx = Math.floor(worldX / TILE);
-    const ty = Math.floor(worldY / TILE);
-
-    const m = inBounds(tx,ty) ? `${tx}, ${ty}` : "â€”";
-    if (coordMouseEl && coordMouseEl.textContent !== m) coordMouseEl.textContent = m;
-  }
-
-  function renderGold(){
-    const g = getGold();
-    if (hudGoldTextEl) hudGoldTextEl.textContent = `Gold: ${g}`;
-    const invGoldPill = document.getElementById("invGoldPill");
-    if (invGoldPill) invGoldPill.textContent = `Gold: ${g}`;
-  }
-
-  function renderQuiver(){
-    document.getElementById("invQuiverPill").textContent = `Quiver: ${getQuiverCount()}`;
-    document.getElementById("eqQuiverPill").textContent = `Quiver: ${getQuiverCount()}`;
-    renderQuiverSlot();
-    renderGold();
-    renderHPHUD();
-
-  }
+  const {
+    recalcMaxHPFromHealth,
+    renderHPHUD,
+    updateCoordsHUD,
+    renderGold,
+    renderQuiver
+  } = initHud({
+    document,
+    player,
+    Skills,
+    BASE_HP,
+    HP_PER_LEVEL,
+    levelFromXP,
+    getGold,
+    getQuiverCount,
+    renderQuiverSlot,
+    inBounds,
+    mouse,
+    camera,
+    viewWorldW,
+    viewWorldH,
+    VIEW_W,
+    VIEW_H,
+    TILE,
+    getPlayerCombatLevel
+  });
 
   function addXP(skillKey, amount){
     const s = Skills[skillKey];
@@ -2073,209 +1820,22 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
   }
 
  function seedResources(){
-  resources.length = 0;
-
-  // Deterministic per world seed (persistent world)
-  const rng = makeRng(worldState.seed ^ 0xA53C9E27);
-  const used = new Set();
-
-  // Tiles to keep clear (because interactables are placed after resources)
-  const reserved = new Set([
-    keyXY(startCastle.x0 + 4, startCastle.y0 + 3),     // bank
-    keyXY(VENDOR_TILE.x, VENDOR_TILE.y),               // vendor in shop
-    keyXY(startCastle.x0 + 5, startCastle.y0 + 4),     // quartermaster npc
-    keyXY(startCastle.x0 + 6, startCastle.y0 + 4),     // player spawn-ish
-    keyXY(OVERWORLD_LADDER_DOWN.x, OVERWORLD_LADDER_DOWN.y), // dungeon ladder
-  ]);
-
-  function tileOkForResource(x,y){
-    if (!inBounds(x,y)) return false;
-
-    // Resources only on grass
-    if (map[y][x] !== 0) return false;
-
-    // Keep paths readable (no hugging paths)
-    if (nearTileType(x,y, 5, 1)) return false;
-
-    // Keep castles/keeps clean
-    if (inRectMargin(x,y, startCastle, 2)) return false;
-    if (inRectMargin(x,y, vendorShop, 2)) return false;
-    if (inRectMargin(x,y, southKeep,  2)) return false;
-
-    // Avoid reserved tiles and stacking
-    if (reserved.has(keyXY(x,y))) return false;
-    if (used.has(keyXY(x,y))) return false;
-
-    return true;
-  }
-
-  function placeRes(type,x,y){
-    used.add(keyXY(x,y));
-    placeResource(type, x, y);
-  }
-
-  function tooCloseToSameType(type, x,y, minDistTiles){
-    for (const r of resources){
-      if (!r.alive || r.type !== type) continue;
-      if (Math.hypot(r.x - x, r.y - y) < minDistTiles) return true;
-    }
-    return false;
-  }
-
-  // Zones to nudge trees into "real" looking regions (not symmetric, not centered)
-  const TREE_ZONES = [
-    { x1: 16, y1: 5,  x2: 57, y2: 18, w: 1.00 }, // north / northeast
-    { x1: 3,  y1: 25, x2: 25, y2: 38, w: 1.00 }, // south west
-    { x1: 30, y1: 24, x2: 58, y2: 38, w: 0.85 }, // south east
-    { x1: 0,  y1: 12, x2: 14, y2: 38, w: 0.55 }, // west band
-    { x1: 18, y1: 18, x2: 40, y2: 26, w: 0.60 }, // mid band
-  ];
-
-  const ROCK_ZONES = [
-    { x1: 12, y1: 3,  x2: 26, y2: 16, w: 1.00 }, // near north cliff
-    { x1: 4,  y1: 24, x2: 18, y2: 38, w: 1.00 }, // near south cliff
-    { x1: 22, y1: 26, x2: 40, y2: 36, w: 0.85 }, // near mid cliff
-    { x1: 42, y1: 24, x2: 58, y2: 38, w: 0.70 }, // south/east
-  ];
-
-  function pickZone(zones){
-    const total = zones.reduce((a,z)=>a+z.w,0);
-    let r = rng() * total;
-    for (const z of zones){
-      r -= z.w;
-      if (r <= 0) return z;
-    }
-    return zones[zones.length-1];
-  }
-  function sampleInZone(z){
-    return { x: randInt(rng, z.x1, z.x2), y: randInt(rng, z.y1, z.y2) };
-  }
-
-  // ---------- Trees: groves + scatter ----------
-  const TREE_TOTAL = 30;
-  const GROVE_COUNT = 4;
-  const groveCenters = [];
-  const groveCenterMinDist = 10;
-
-  function findGroveCenter(){
-    for (let a=0; a<2500; a++){
-      const z = pickZone(TREE_ZONES);
-      const p = sampleInZone(z);
-      if (!tileOkForResource(p.x,p.y)) continue;
-      // keep grove centers apart
-      let ok = true;
-      for (const c of groveCenters){
-        if (Math.hypot(c.x - p.x, c.y - p.y) < groveCenterMinDist){ ok = false; break; }
-      }
-      if (!ok) continue;
-      return p;
-    }
-    return null;
-  }
-
-  for (let i=0; i<GROVE_COUNT; i++){
-    const c = findGroveCenter();
-    if (c) groveCenters.push(c);
-  }
-
-  function fillGrove(cx,cy, want){
-    let placed = 0;
-    for (let a=0; a<want*45 && placed<want; a++){
-      const ang = rng() * Math.PI * 2;
-      // center-weighted radius for natural falloff
-      const rr = (1.0 + rng()*4.0) * (rng()**0.55);
-      const x = Math.round(cx + Math.cos(ang) * rr);
-      const y = Math.round(cy + Math.sin(ang) * rr);
-
-      if (!tileOkForResource(x,y)) continue;
-      // allow some adjacency, but avoid â€œsolid blobsâ€
-      if (tooCloseToSameType("tree", x,y, 1.35)) continue;
-
-      placeRes("tree", x,y);
-      placed++;
-    }
-    return placed;
-  }
-
-  for (const c of groveCenters){
-    const groveSize = randInt(rng, 6, 9);
-    fillGrove(c.x, c.y, groveSize);
-  }
-
-  // scatter singles to reach TREE_TOTAL
-  for (let a=0; a<12000 && resources.filter(r=>r.type==="tree").length < TREE_TOTAL; a++){
-    const z = pickZone(TREE_ZONES);
-    const p = sampleInZone(z);
-    if (!tileOkForResource(p.x,p.y)) continue;
-    if (tooCloseToSameType("tree", p.x,p.y, 1.05)) continue;
-    placeRes("tree", p.x,p.y);
-  }
-
-  // ---------- Rocks: prefer near cliffs, clustered ----------
-  const ROCK_TOTAL = 12;
-  const ROCK_CLUSTER_COUNT = 3;
-
-  function tileOkForRock(x,y){
-    if (!tileOkForResource(x,y)) return false;
-    return true;
-  }
-
-  function findRockCenter(preferCliff){
-    for (let a=0; a<2500; a++){
-      const z = pickZone(ROCK_ZONES);
-      const p = sampleInZone(z);
-      if (!tileOkForRock(p.x,p.y)) continue;
-
-      if (preferCliff && !nearTileType(p.x,p.y, 2, 1)) continue; // near cliff
-      return p;
-    }
-    return null;
-  }
-
-  let rocksPlaced = 0;
-
-  function fillRockCluster(cx,cy, want){
-    let placed = 0;
-    for (let a=0; a<want*35 && placed<want; a++){
-      const x = cx + randInt(rng, -2, 2);
-      const y = cy + randInt(rng, -2, 2);
-      if (!tileOkForRock(x,y)) continue;
-      if (tooCloseToSameType("rock", x,y, 1.15)) continue;
-      placeRes("rock", x,y);
-      placed++;
-    }
-    return placed;
-  }
-
-  for (let i=0; i<ROCK_CLUSTER_COUNT && rocksPlaced < ROCK_TOTAL; i++){
-    const c = findRockCenter(true) || findRockCenter(false);
-    if (!c) break;
-    const sz = randInt(rng, 3, 5);
-    rocksPlaced += fillRockCluster(c.x, c.y, Math.min(sz, ROCK_TOTAL - rocksPlaced));
-  }
-
-  // top-off any remaining rocks in rock zones
-  for (let a=0; a<8000 && rocksPlaced < ROCK_TOTAL; a++){
-    const z = pickZone(ROCK_ZONES);
-    const p = sampleInZone(z);
-    if (!tileOkForRock(p.x,p.y)) continue;
-    if (tooCloseToSameType("rock", p.x,p.y, 1.05)) continue;
-    placeRes("rock", p.x,p.y);
-    rocksPlaced++;
-  }
-
-  // ---------- Iron rocks: additional higher-tier source near rock faces ----------
-  const IRON_ROCK_TOTAL = 8;
-  let ironPlaced = 0;
-  for (let a=0; a<12000 && ironPlaced < IRON_ROCK_TOTAL; a++){
-    const z = pickZone(ROCK_ZONES);
-    const p = sampleInZone(z);
-    if (!tileOkForRock(p.x,p.y)) continue;
-    if (!nearTileType(p.x,p.y, 2, 1)) continue;
-    if (tooCloseToSameType("iron_rock", p.x,p.y, 1.10)) continue;
-    placeRes("iron_rock", p.x,p.y);
-    ironPlaced++;
-  }
+  seedResourcesModule({
+    resources,
+    map,
+    inBounds,
+    nearTileTypeInMap,
+    inRectMargin,
+    startCastle,
+    vendorShop,
+    southKeep,
+    keyXY,
+    makeRng,
+    randInt,
+    worldSeed: worldState.seed,
+    placeResource,
+    OVERWORLD_LADDER_DOWN
+  });
 }
 
   function seedMobs(){
@@ -2501,90 +2061,24 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
 
 }
 
-  function buildBaseInteractables(){
-    // Returns the guaranteed base world interactables that should always be present.
-    // This is the source of truth for what should be seeded on new games.
-    const base = [];
-
-    // Bank at start castle
-    base.push({ type: "bank", x: startCastle.x0 + 4, y: startCastle.y0 + 3 });
-
-    // Quartermaster quest NPC
-    base.push({ type: "quest_npc", x: startCastle.x0 + 5, y: startCastle.y0 + 4, npcId: "quartermaster", name: "Quartermaster Bryn" });
-
-    // Vendor
-    base.push({ type: "vendor", x: VENDOR_TILE.x, y: VENDOR_TILE.y });
-
-    // Ladder down
-    base.push({ type: "ladder_down", x: OVERWORLD_LADDER_DOWN.x, y: OVERWORLD_LADDER_DOWN.y });
-
-    // Fishing spots on the river
-    base.push({ type: "fish", x: 6, y: RIVER_Y });
-    base.push({ type: "fish", x: 10, y: RIVER_Y + 1 });
-
-    // Smithing furnace and anvil
-    base.push({ type: "furnace", x: SMITHING_FURNACE_TILE.x, y: SMITHING_FURNACE_TILE.y });
-    base.push({ type: "anvil", x: SMITHING_ANVIL_TILE.x, y: SMITHING_ANVIL_TILE.y });
-
-    // Blacksmith Torren - Project NPC (always present)
-    base.push({ 
-      type: "project_npc", 
-      x: SMITHING_BLACKSMITH_TILE.x, 
-      y: SMITHING_BLACKSMITH_TILE.y, 
-      npcId: "blacksmith_torren", 
-      name: TOWN_PROJECT_NPC.blacksmith_torren.name 
-    });
-
-    // Project NPCs (always present)
-    base.push({ 
-      type: "project_npc", 
-      x: 30, 
-      y: 19, 
-      npcId: "dock_foreman", 
-      name: TOWN_PROJECT_NPC.dock_foreman.name 
-    });
-
-    base.push({ 
-      type: "project_npc", 
-      x: 7, 
-      y: 16, 
-      npcId: "hearth_keeper", 
-      name: TOWN_PROJECT_NPC.hearth_keeper.name 
-    });
-
-    base.push({ 
-      type: "project_npc", 
-      x: 8, 
-      y: 3, 
-      npcId: "mayor", 
-      name: TOWN_PROJECT_NPC.mayor.name 
-    });
-
-    return base;
-  }
+  const buildBaseInteractables = () => buildBaseInteractablesModule({
+    startCastle,
+    VENDOR_TILE,
+    OVERWORLD_LADDER_DOWN,
+    SMITHING_FURNACE_TILE,
+    SMITHING_ANVIL_TILE,
+    SMITHING_BLACKSMITH_TILE,
+    RIVER_Y,
+    TOWN_PROJECT_NPC
+  });
 
   function seedInteractables(){
-    interactables.length=0;
-    
-    // Start with guaranteed base interactables
-    const base = buildBaseInteractables();
-    for (const it of base) {
-      interactables.push(it);
-    }
-
-    // Add conditional interactables that depend on state
-    
-    // Dock fishing spot (spawns after dock project completes)
-    const dockState = getProjectState("rivermoor", "dock");
-    if (dockState === "complete") {
-      interactables.push({ type: "fish_dock", x: 31, y: 23 });
-    }
-
-    const hearthState = getProjectState("rivermoor", "hearth");
-    if (hearthState === "complete") {
-      const cauldronTile = getHearthCampCauldronTile();
-      interactables.push({ type: "cauldron", x: cauldronTile.x, y: cauldronTile.y });
-    }
+    seedInteractablesModule({
+      interactables,
+      buildBaseInteractables,
+      getProjectState,
+      getHearthCampCauldronTile
+    });
 
     // Smithing bank (unlocks with smithing_upgrade project or storage project complete)
     if (isSmithBankUnlocked() || getProjectState("rivermoor", "storage") === "complete"){
@@ -4884,7 +4378,8 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
     tryItemOnItem,
     isStickyUseTool,
     handleUseOnSelf
-  } = createItemUse({
+  } = initItemUse({
+    createItemUse,
     useState,
     invUseStateEl,
     Items,
@@ -4910,25 +4405,11 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
     onRubXpLamp: openXpLampWindow
   });
 
-  // ---------- Context menu ----------
-  const { openCtxMenu, closeCtxMenu } = createContextMenuUI({
+  const { openCtxMenu, closeCtxMenu } = initInventoryUi({
+    createContextMenuUI,
+    attachInventoryContextMenus,
+    attachInventoryInputHandlers,
     clamp,
-    invGrid,
-    bankGrid,
-    eqWeaponSlot,
-    eqOffhandSlot,
-    eqHeadSlot,
-    eqBodySlot,
-    eqLegsSlot,
-    eqHandsSlot,
-    eqFeetSlot,
-    eqQuiverSlot,
-    inv,
-    bank
-  });
-
-  // ---------- Right-click menus ----------
-  attachInventoryContextMenus({
     invGrid,
     bankGrid,
     eqWeaponSlot,
@@ -4945,7 +4426,6 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
     Items,
     player,
     windowsOpen,
-    openCtxMenu,
     countInvQtyById,
     depositByIdFromInv,
     consumeFoodFromInv,
@@ -4961,36 +4441,13 @@ if (hudCombatTextEl) hudCombatTextEl.textContent = `Combat: ${getPlayerCombatLev
     unequipSlot,
     getQuiverCount,
     moveAmmoFromQuiverToInventory,
-    onRubXpLamp: openXpLampWindow
-  });
-
-  attachInventoryInputHandlers({
-    invGrid,
-    bankGrid,
-    eqWeaponSlot,
-    eqOffhandSlot,
-    eqHeadSlot,
-    eqBodySlot,
-    eqLegsSlot,
-    eqHandsSlot,
-    eqFeetSlot,
-    inv,
-    bank,
-    windowsOpen,
+    onRubXpLamp: openXpLampWindow,
     depositFromInv,
-    consumeFoodFromInv,
     useState,
     handleUseOnSelf,
-    setUseState,
     tryItemOnItem,
     isStickyUseTool,
-    canEquip,
-    equipFromInv,
-    withdrawFromBank,
-    equipment,
-    emptyInvSlots,
-    chatLine,
-    unequipSlot
+    emptyInvSlots
   });
 
   // ---------- Character creation ----------
@@ -9509,9 +8966,9 @@ initWorldSeed();
       }
       return success;
     },
-    checkQuestRenown: () => ({ ...renownGrants.quests }),
+    checkQuestRenown: () => getQuestGrantFlags(),
     resetQuestRenown: () => {
-      renownGrants.quests = {};
+      clearQuestGrantFlags();
       chatLine("<span class=\"muted\">[debug] Quest renown grants reset</span>");
     },
     grantQuestRenown: (questId) => {
@@ -9533,9 +8990,9 @@ initWorldSeed();
       }
       return success;
     },
-    checkWardenDefeat: () => ({ ...renownGrants.wardens }),
+    checkWardenDefeat: () => getWardenGrantFlags(),
     resetWardenDefeat: () => {
-      renownGrants.wardens = {};
+      clearWardenGrantFlags();
       chatLine("<span class=\"muted\">[debug] Warden defeat tracking reset</span>");
     },
     // PASS 4A: Town projects testing
