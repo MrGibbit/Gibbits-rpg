@@ -1,8 +1,8 @@
 // ========== RIVERMOOR RENOWN SYSTEM ==========
 export const RENOWN_SOURCES = {
   FIRST_QUEST: 25,
-  SECOND_QUEST: 20,
-  FIRST_WARDEN_KILL: 20,
+  SECOND_QUEST: 40,
+  FIRST_WARDEN_KILL: 0,
   WARDEN_KILL_SUBSEQUENT: 1,
   PROJECT_COMPLETION: 10,
   GOLD_DONATION_PER_100: 0       // Gold donations do NOT grant renown (removed to prevent farming)
@@ -19,11 +19,11 @@ export const RENOWN_MILESTONES = {
 
 export const QUEST_RENOWN_REWARDS = {
   first_watch: { townId: "rivermoor", amount: 25 },
-  ashes_under_the_keep: { townId: "rivermoor", amount: 20 }
+  ashes_under_the_keep: { townId: "rivermoor", amount: 40 }
 };
 
 export const WARDEN_RENOWN_CONFIG = {
-  skeleton_warden: { townId: "rivermoor", amount: 20, cooldownMs: 10 * 60 * 1000, firstKillOnly: true }
+  skeleton_warden: { townId: "rivermoor", amount: 0, cooldownMs: 10 * 60 * 1000, firstKillOnly: true }
 };
 
 // ========== RIVERMOOR PROJECT DONATIONS SYSTEM ==========

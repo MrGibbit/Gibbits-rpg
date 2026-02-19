@@ -1805,9 +1805,6 @@ function consumeFoodFromInv(invIndex){
 
   const trackQuestEvent = (ev) => {
     const result = _trackQuestEvent_original(ev);
-    if (ev?.type === "kill_mob" && ev?.mobType === "skeleton_warden") {
-      grantWardenDefeatRenown();
-    }
     return result;
   };
 
