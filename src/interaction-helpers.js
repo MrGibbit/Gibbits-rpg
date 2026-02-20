@@ -8,8 +8,29 @@ export function createInteractionHelpers(deps) {
     ensureWalkIntoRangeAndAct,
     setPathTo,
     getEntityAt,
-    interactables
+    interactables,
+    Items,
+    FISHING_SPOT_TABLES
   } = deps;
+
+  function formatFishingSpotList(spotType) {
+    const key = String(spotType || "fish");
+    const rows = (FISHING_SPOT_TABLES && Array.isArray(FISHING_SPOT_TABLES[key]))
+      ? FISHING_SPOT_TABLES[key]
+      : [];
+    if (!rows.length) return "";
+
+    return rows
+      .map((row) => {
+        const id = String(row?.id || row?.itemId || "");
+        if (!id) return "";
+        const name = Items?.[id]?.name ?? id;
+        const lvl = Math.max(1, row?.level | 0);
+        return `${name} (Lv ${lvl})`;
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
 
   function examineEntity(ent) {
     if (!ent) return;
@@ -59,8 +80,9 @@ export function createInteractionHelpers(deps) {
     if (ent.kind === "fish") {
       const spot = interactables[ent.index];
       const typeLabel = spot?.type === "fish_dock" ? "Advanced Fishing Spot" : "Fishing Spot";
-      const typeDesc = spot?.type === "fish_dock" ? "larger fish" : "common fish";
-      chatLine(`<span class="muted">A bubbling ${typeLabel} in the river, attracting ${typeDesc}.</span>`);
+      const fishList = formatFishingSpotList(spot?.type);
+      const listText = fishList ? ` Available: ${fishList}.` : "";
+      chatLine(`<span class="muted">A bubbling ${typeLabel} in the river.${listText}</span>`);
     }
     if (ent.kind === "furnace") chatLine(`<span class="muted">A sturdy furnace. You can smelt crude or iron ore into crude bars here.</span>`);
     if (ent.kind === "anvil") chatLine(`<span class="muted">A heavy anvil for shaping bars into gear.</span>`);

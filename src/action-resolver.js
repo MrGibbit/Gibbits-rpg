@@ -16,6 +16,7 @@ export function createActionResolver(deps) {
     clamp,
     useState,
     COOK_RECIPES,
+    FISHING_SPOT_TABLES,
     SMELTING_TIERS,
     MINING_RESOURCE_RULES,
     hasItem,
@@ -65,20 +66,34 @@ export function createActionResolver(deps) {
   const FISHING_CATCH_CHANCE_MIN = 0.34;
   const FISHING_CATCH_CHANCE_PER_LEVEL = 0.035;
   const FISHING_CATCH_CHANCE_MAX = 0.82;
-  const FISHING_TIERS_STARTER = [
-    { level: 30, itemId: "catfish", xp: 36 },
-    { level: 20, itemId: "pufferfish", xp: 29 },
-    { level: 10, itemId: "clownfish", xp: 22 },
-    { level: 1, itemId: "goldfish", xp: 15 }
-  ];
-  const FISHING_TIERS_DOCK = [
-    { level: 70, itemId: "moonfish", xp: 61 },
-    { level: 55, itemId: "anglerfish", xp: 51 },
-    { level: 40, itemId: "swordfish", xp: 43 }
-  ];
+  const DEFAULT_FISHING_TABLES = {
+    fish: [
+      { id: "goldfish", level: 1, xp: 15 },
+      { id: "clownfish", level: 10, xp: 22 },
+      { id: "pufferfish", level: 20, xp: 29 },
+      { id: "catfish", level: 30, xp: 36 }
+    ],
+    fish_dock: [
+      { id: "swordfish", level: 40, xp: 43 },
+      { id: "anglerfish", level: 55, xp: 51 },
+      { id: "moonfish", level: 70, xp: 61 }
+    ]
+  };
 
-  function getFishingTierPool(spotType) {
-    return spotType === "fish_dock" ? FISHING_TIERS_DOCK : FISHING_TIERS_STARTER;
+  function getFishingSpotTable(spotType) {
+    const key = String(spotType || "fish");
+    const source = (FISHING_SPOT_TABLES && Array.isArray(FISHING_SPOT_TABLES[key]) && FISHING_SPOT_TABLES[key].length)
+      ? FISHING_SPOT_TABLES[key]
+      : (DEFAULT_FISHING_TABLES[key] || DEFAULT_FISHING_TABLES.fish);
+
+    return source
+      .map((row) => ({
+        itemId: String(row?.itemId || row?.id || ""),
+        level: readLevel(row),
+        xp: Math.max(1, row?.xp | 0)
+      }))
+      .filter((row) => row.itemId)
+      .sort((a, b) => b.level - a.level);
   }
   const AUTO_COOK_ITEM_IDS = [
     "rat_meat",
@@ -718,12 +733,32 @@ export function createActionResolver(deps) {
         return;
       }
 
+      const tierPool = getFishingSpotTable(spot.type);
+      const minLevel = tierPool.length
+        ? tierPool.reduce((min, row) => Math.min(min, row.level), tierPool[0].level)
+        : 1;
+      const eligible = tierPool.filter((tier) => lvl >= tier.level);
+      if (!eligible.length) {
+        stopAction(`You need Fishing level ${minLevel} to fish here.`);
+        return;
+      }
+
       if (stopIfInventoryFull("Inventory full.")) return;
 
       startTimedAction("fish", 1600, "Fishing...", () => {
         if (stopIfInventoryFull("Inventory full.")) return;
 
         const lvlNow = levelFromXP(Skills.fishing.xp);
+        const poolNow = getFishingSpotTable(spot.type);
+        const minLevelNow = poolNow.length
+          ? poolNow.reduce((min, row) => Math.min(min, row.level), poolNow[0].level)
+          : 1;
+        const eligibleNow = poolNow.filter((tier) => lvlNow >= tier.level);
+        if (!eligibleNow.length) {
+          chatLine(`<span class="warn">You need Fishing level ${minLevelNow} to fish here.</span>`);
+          return;
+        }
+
         const chance = clamp(
           FISHING_CATCH_CHANCE_MIN + lvlNow * FISHING_CATCH_CHANCE_PER_LEVEL,
           FISHING_CATCH_CHANCE_MIN,
@@ -734,8 +769,7 @@ export function createActionResolver(deps) {
           return;
         }
 
-        const tierPool = getFishingTierPool(spot.type);
-        const fishTier = tierPool.find((tier) => lvlNow >= tier.level) || tierPool[tierPool.length - 1];
+        const fishTier = eligibleNow[0];
         const catchId = fishTier.itemId;
         const catchName = Items[catchId]?.name ?? catchId;
         const catchXp = fishTier.xp;

@@ -17,7 +17,7 @@ import {
 import {
   COOK_RECIPES, CLASS_DEFS, MOB_DEFS, DEFAULT_VENDOR_STOCK, DEFAULT_VENDOR_SELL_ONLY_PRICES,
   DEFAULT_MOB_LEVELS, VENDOR_SELL_MULT, QUEST_DEFS, SMELTING_TIERS, MINING_RESOURCE_RULES, QUEST_RENOWN_REWARDS, WARDEN_RENOWN_CONFIG,
-  PROJECT_REQUIREMENTS, isItemInCategory
+  PROJECT_REQUIREMENTS, isItemInCategory, FISHING_SPOT_TABLES
 } from "./src/game-data.js";
 import {
   createDecorLookup, stampVendorShopLayout, VENDOR_TILE, DECOR_EXAMINE_TEXT, getDockDecorForState, getHearthDecorForState
@@ -44,6 +44,8 @@ import { buildBaseInteractables as buildBaseInteractablesModule, seedInteractabl
 import { createRenownGrants } from "./src/renown-grants.js";
 import { initHud } from "./src/hud.js";
 import { seedResources as seedResourcesModule } from "./src/resource-seeding.js";
+import { seedMobs as seedMobsModule } from "./src/mob-seeding.js";
+import { initChatUi } from "./src/init-chat-ui.js";
 import { createContextMenuUI } from "./src/context-menu-ui.js";
 import { attachInventoryContextMenus } from "./src/inventory-context-menus.js";
 import { attachInventoryInputHandlers } from "./src/inventory-input-handlers.js";
@@ -661,7 +663,7 @@ function levelStrokeForCls(cls){
     flint_steel:{ id:"flint_steel", name:"Flint & Steel", stack:false, icon:icon("flint", "#4d6b74", "#283b40", "#141f22"), flatIcon:flatIcon("flint") },
 
     sword: { id:"sword", name:"Sword", stack:false, icon:icon("sword", "#748198", "#3b4455", "#1d222b"), flatIcon:flatIcon("sword"), equipSlot:"weapon", combat:{ style:"melee", att:3, dmg:3 } },
-    shield:{ id:"shield",name:"Shield",stack:false, icon:icon("shield", "#3f7267", "#22423b", "#11221e"), flatIcon:flatIcon("shield"), equipSlot:"offhand", combat:{ style:"any", def:3 } },
+    shield:{ id:"shield",name:"Shield",stack:false, icon:icon("shield", "#3f7267", "#22423b", "#11221e"), flatIcon:flatIcon("shield"), equipSlot:"offhand", req:{ defense:1 }, combat:{ style:"any", def:3 } },
     bow:   { id:"bow",   name:"Bow",   stack:false, icon:icon("bow", "#89673c", "#4b341f", "#251a0f"), flatIcon:flatIcon("bow"), equipSlot:"weapon", combat:{ style:"ranged", att:3, dmg:3 } },
 
     wooden_arrow:{ id:"wooden_arrow", name:"Wooden Arrow", stack:true, ammo:true, icon:icon("arrow", "#8a653a", "#4b341f", "#261a10"), flatIcon:flatIcon("arrow") },
@@ -677,16 +679,16 @@ function levelStrokeForCls(cls){
     iron_bar: { id:"iron_bar", name:"Iron Bar", stack:true, icon:icon("bar_iron", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("bar_iron") },
     crude_dagger: { id:"crude_dagger", name:"Crude Dagger", stack:false, icon:icon("knife", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("knife"), equipSlot:"weapon", combat:{ style:"melee", att:2, dmg:2 } },
     crude_sword: { id:"crude_sword", name:"Crude Sword", stack:false, icon:icon("sword", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("sword"), equipSlot:"weapon", combat:{ style:"melee", att:2, dmg:2 } },
-    crude_shield: { id:"crude_shield", name:"Crude Shield", stack:false, icon:icon("crude_shield", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("crude_shield"), equipSlot:"offhand", equipVisual:{ key:"crude_shield", layer:"offhand" }, combat:{ style:"any", def:2 } },
-    crude_helm: { id:"crude_helm", name:"Crude Helm", stack:false, icon:icon("ore_crude", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("ore_crude"), equipSlot:"head", equipVisual:{ key:"helm_crude", layer:"head" }, combat:{ style:"any", def:1 } },
-    crude_legs: { id:"crude_legs", name:"Crude Legs", stack:false, icon:icon("bar_crude", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("bar_crude"), equipSlot:"legs", equipVisual:{ key:"legs_crude", layer:"legs" }, combat:{ style:"any", def:1 } },
-    crude_body: { id:"crude_body", name:"Crude Body", stack:false, icon:icon("crude_shield", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("crude_shield"), equipSlot:"body", equipVisual:{ key:"body_crude", layer:"body" }, combat:{ style:"any", def:2 } },
+    crude_shield: { id:"crude_shield", name:"Crude Shield", stack:false, icon:icon("crude_shield", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("crude_shield"), equipSlot:"offhand", req:{ defense:1 }, equipVisual:{ key:"crude_shield", layer:"offhand" }, combat:{ style:"any", def:2 } },
+    crude_helm: { id:"crude_helm", name:"Crude Helm", stack:false, icon:icon("ore_crude", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("ore_crude"), equipSlot:"head", req:{ defense:1 }, equipVisual:{ key:"helm_crude", layer:"head" }, combat:{ style:"any", def:1 } },
+    crude_legs: { id:"crude_legs", name:"Crude Legs", stack:false, icon:icon("bar_crude", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("bar_crude"), equipSlot:"legs", req:{ defense:1 }, equipVisual:{ key:"legs_crude", layer:"legs" }, combat:{ style:"any", def:1 } },
+    crude_body: { id:"crude_body", name:"Crude Body", stack:false, icon:icon("crude_shield", "#8f7f6a", "#4e453a", "#231f18"), flatIcon:flatIcon("crude_shield"), equipSlot:"body", req:{ defense:1 }, equipVisual:{ key:"body_crude", layer:"body" }, combat:{ style:"any", def:2 } },
     iron_dagger: { id:"iron_dagger", name:"Iron Dagger", stack:false, icon:icon("knife", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("knife"), equipSlot:"weapon", req:{ accuracy:5 }, combat:{ style:"melee", att:3, dmg:3 } },
     iron_sword: { id:"iron_sword", name:"Iron Sword", stack:false, icon:icon("sword", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("sword"), equipSlot:"weapon", req:{ accuracy:10 }, combat:{ style:"melee", att:3, dmg:4 } },
-    iron_shield: { id:"iron_shield", name:"Iron Shield", stack:false, icon:icon("shield", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("shield"), equipSlot:"offhand", equipVisual:{ key:"iron_shield", layer:"offhand" }, combat:{ style:"any", def:3 } },
-    iron_helm: { id:"iron_helm", name:"Iron Helm", stack:false, icon:icon("ore_iron", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("ore_iron"), equipSlot:"head", equipVisual:{ key:"helm_iron", layer:"head" }, combat:{ style:"any", def:2 } },
-    iron_legs: { id:"iron_legs", name:"Iron Legs", stack:false, icon:icon("bar_iron", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("bar_iron"), equipSlot:"legs", equipVisual:{ key:"legs_iron", layer:"legs" }, combat:{ style:"any", def:2 } },
-    iron_body: { id:"iron_body", name:"Iron Body", stack:false, icon:icon("shield", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("shield"), equipSlot:"body", equipVisual:{ key:"body_iron", layer:"body" }, combat:{ style:"any", def:3 } },
+    iron_shield: { id:"iron_shield", name:"Iron Shield", stack:false, icon:icon("shield", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("shield"), equipSlot:"offhand", req:{ defense:10 }, equipVisual:{ key:"iron_shield", layer:"offhand" }, combat:{ style:"any", def:3 } },
+    iron_helm: { id:"iron_helm", name:"Iron Helm", stack:false, icon:icon("ore_iron", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("ore_iron"), equipSlot:"head", req:{ defense:10 }, equipVisual:{ key:"helm_iron", layer:"head" }, combat:{ style:"any", def:2 } },
+    iron_legs: { id:"iron_legs", name:"Iron Legs", stack:false, icon:icon("bar_iron", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("bar_iron"), equipSlot:"legs", req:{ defense:10 }, equipVisual:{ key:"legs_iron", layer:"legs" }, combat:{ style:"any", def:2 } },
+    iron_body: { id:"iron_body", name:"Iron Body", stack:false, icon:icon("shield", "#9ca3af", "#4b5563", "#1f2937"), flatIcon:flatIcon("shield"), equipSlot:"body", req:{ defense:10 }, equipVisual:{ key:"body_iron", layer:"body" }, combat:{ style:"any", def:3 } },
     bone: { id:"bone", name:"Bone", stack:true, icon:icon("bone", "#7d868e", "#4c545c", "#24292e"), flatIcon:flatIcon("bone") },
     bone_meal: {
       id:"bone_meal",
@@ -777,6 +779,7 @@ goldfish: {
   name:"Gold Fish",
   heal: 2,          // same as raw rat meat
   stack:true,
+  req:{ fishing:1 },
   icon:`<svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block">
     <rect x="4" y="6" width="7" height="1" fill="rgb(40,22,16)"/>
     <rect x="3" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
@@ -815,6 +818,7 @@ clownfish: {
   name:"Clownfish",
   heal: 4,
   stack:true,
+  req:{ fishing:10 },
   icon:`<svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block">
     <rect x="4" y="6" width="7" height="1" fill="rgb(40,22,16)"/>
     <rect x="3" y="7" width="1" height="2" fill="rgb(40,22,16)"/>
@@ -858,6 +862,7 @@ pufferfish: {
   name:"Pufferfish",
   heal: 6,
   stack:true,
+  req:{ fishing:20 },
   icon: fishIcon("rgb(234,179,8)", "rgb(253,224,71)", "rgb(168,85,247)")
 },
 
@@ -874,6 +879,7 @@ catfish: {
   name:"Catfish",
   heal: 8,
   stack:true,
+  req:{ fishing:30 },
   icon: fishIcon("rgb(100,116,139)", "rgb(148,163,184)", "rgb(30,64,175)")
 },
 
@@ -890,6 +896,7 @@ swordfish: {
   name:"Swordfish",
   heal: 10,
   stack:true,
+  req:{ fishing:40 },
   icon: fishIcon("rgb(14,116,144)", "rgb(125,211,252)", "rgb(56,189,248)")
 },
 
@@ -906,6 +913,7 @@ anglerfish: {
   name:"Anglerfish",
   heal: 12,
   stack:true,
+  req:{ fishing:55 },
   icon: fishIcon("rgb(82,82,91)", "rgb(161,161,170)", "rgb(234,88,12)")
 },
 
@@ -922,6 +930,7 @@ moonfish: {
   name:"Moonfish",
   heal: 14,
   stack:true,
+  req:{ fishing:70 },
   icon: fishIcon("rgb(99,102,241)", "rgb(196,181,253)", "rgb(168,85,247)")
 },
 
@@ -938,6 +947,7 @@ chaos_koi: {
   name:"Chaos Koi",
   heal: 16,
   stack:true,
+  req:{ fishing:80 },
   icon: fishIcon("rgb(220,38,38)", "rgb(251,146,60)", "rgb(250,204,21)")
 },
 
@@ -1317,12 +1327,15 @@ function consumeFoodFromInv(invIndex){
       return { success: false, reason: `You've already donated all gold for this project` };
     }
 
-    if (wallet.gold < canDonate) {
-      return { success: false, reason: `You only have ${wallet.gold} gold` };
+    const haveGold = wallet.gold | 0;
+    if (haveGold < canDonate) {
+      return { success: false, reason: `You only have ${haveGold} gold` };
     }
 
-    // Spend gold
-    wallet.gold -= canDonate;
+    // Spend gold (updates UI immediately)
+    if (!spendGold(canDonate)) {
+      return { success: false, reason: `Insufficient gold` };
+    }
     proj.goldDonated = (proj.goldDonated | 0) + canDonate;
 
     // Check if project should auto-complete
@@ -1839,227 +1852,31 @@ function consumeFoodFromInv(invIndex){
 }
 
   function seedMobs(){
-  mobs.length = 0;
-
-  const rng = makeRng(worldState.seed ^ 0x51C3A2B9);
-  const used = new Set();
-
-  // Build a reachable set so rats never spawn in sealed-off areas
-  const reachable = new Set();
-  (function buildReachable(){
-    const q = [{x: player.x, y: player.y}];
-    reachable.add(keyXY(player.x, player.y));
-    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-    while (q.length){
-      const cur = q.shift();
-      for (const [dx,dy] of dirs){
-        const nx = cur.x + dx, ny = cur.y + dy;
-        if (!isWalkable(nx,ny)) continue;
-        const k = keyXY(nx,ny);
-        if (reachable.has(k)) continue;
-        reachable.add(k);
-        q.push({x:nx,y:ny});
-      }
-    }
-  })();
-
-  // Keep clear of starter safety area + paths
-  function tileOkForRat(x,y){
-    if (!inBounds(x,y)) return false;
-
-    // Rats on grass only (not inside castles/paths)
-    if (map[y][x] !== 0) return false;
-
-    // Must be reachable from the player start region
-    if (!reachable.has(keyXY(x,y))) return false;
-
-    // Donâ€™t sit on resources
-    if (resources.some(r => r.alive && r.x===x && r.y===y)) return false;
-
-    // Avoid interactable tiles (known)
-    if (
-      (x===startCastle.x0+4 && y===startCastle.y0+3) ||
-      (x===VENDOR_TILE.x && y===VENDOR_TILE.y) ||
-      (x===9 && y===13) ||
-      (x===OVERWORLD_LADDER_DOWN.x && y===OVERWORLD_LADDER_DOWN.y)
-    ) return false;
-
-    // Avoid castles/keeps + a buffer so early game feels safe
-    if (inRectMargin(x,y, startCastle, 6)) return false;
-    if (inRectMargin(x,y, vendorShop, 4)) return false;
-    if (inRectMargin(x,y, southKeep,  6)) return false;
-
-    // Avoid the main path tile itself (looks goofy)
-    if (map[y][x] === 5) return false;
-    if (nearTileType(x,y, 5, 0)) return false;
-
-    // Avoid stacking rats
-    if (used.has(keyXY(x,y))) return false;
-
-    return true;
-  }
-
-  function treeDensity(x,y, radius){
-    let c = 0;
-    for (const r of resources){
-      if (!r.alive || r.type !== "tree") continue;
-      if (Math.hypot(r.x - x, r.y - y) <= radius) c++;
-    }
-    return c;
-  }
-
-  function tooCloseToExistingRat(x,y, minDist){
-    for (const m of mobs){
-      if (!m.alive) continue;
-      if (Math.hypot(m.x - x, m.y - y) < minDist) return true;
-    }
-    return false;
-  }
-
-  function spawnRat(x,y){
-    used.add(keyXY(x,y));
-    placeMob("rat", x, y);
-  }
-  function spawnGoblin(x,y){
-    used.add(keyXY(x,y));
-    placeMob("goblin", x, y);
-  }
-
-  function findNestTile(kind, zoneFn=null){
-    for (let a=0; a<5000; a++){
-      const x = randInt(rng, 0, W-1);
-      const y = randInt(rng, 0, H-1);
-      if (!tileOkForRat(x,y)) continue;
-      if (zoneFn && !zoneFn(x,y)) continue;
-
-      if (kind === "river"){
-        // next to water tiles (riverbanks), not on bridges/path
-        if (!nearTileType(x,y, 1, 1)) continue;
-        if (nearTileType(x,y, 5, 1)) continue; // keep off bridges
-      } else if (kind === "woods"){
-        if (treeDensity(x,y, 4.0) < 4) continue;
-      }
-
-      return {x,y};
-    }
-    return null;
-  }
-
-  function spawnAround(cx,cy, count, opts={}){
-    const spread = Number.isFinite(opts.spread) ? Math.max(1, opts.spread|0) : 3;
-    const minDistBase = Number.isFinite(opts.minDist) ? Math.max(0.8, opts.minDist) : 2.1;
-    const zoneFn = (typeof opts.zoneFn === "function") ? opts.zoneFn : null;
-    const spawnFn = (typeof opts.spawnFn === "function") ? opts.spawnFn : spawnRat;
-
-    let placed = 0;
-    for (let a=0; a<count*90 && placed<count; a++){
-      const x = cx + randInt(rng, -spread, spread);
-      const y = cy + randInt(rng, -spread, spread);
-      if (!tileOkForRat(x,y)) continue;
-      if (zoneFn && !zoneFn(x,y)) continue;
-
-      // Slight random spacing variance keeps packs from looking too grid-like.
-      const desiredDist = minDistBase + rng()*0.65;
-      if (tooCloseToExistingRat(x,y, desiredDist)) continue;
-
-      spawnFn(x,y);
-      placed++;
-    }
-    return placed;
-  }
-
-  function findClusterSeed(cx, cy, radius, zoneFn=null){
-    for (let a=0; a<2600; a++){
-      const x = cx + randInt(rng, -radius, radius);
-      const y = cy + randInt(rng, -radius, radius);
-      if (zoneFn && !zoneFn(x,y)) continue;
-      if (!tileOkForRat(x,y)) continue;
-      return {x,y};
-    }
-    return null;
-  }
-
-  // Keep most rats near a starter-adjacent training ground while preserving
-  // a couple of natural strays around the world.
-  const TRAINING_TARGET = 5;
-  const TOTAL_TARGET = 7;
-  const southOfRiver = (x,y) => y >= (RIVER_Y + 2);
-  const trainingCenterX = clamp((startCastle.gateX ?? (startCastle.x0 + Math.floor(startCastle.w / 2))) + 1, 0, W-1);
-  const trainingCenterY = clamp(RIVER_Y + 4, 0, H-1);
-  const inTrainingZone = (x,y) => (
-    southOfRiver(x,y) &&
-    Math.abs(x - trainingCenterX) <= 9 &&
-    Math.abs(y - trainingCenterY) <= 6
-  );
-
-  const trainingSeed = findClusterSeed(trainingCenterX, trainingCenterY, 8, inTrainingZone) || findNestTile("river", southOfRiver);
-  if (trainingSeed){
-    const subSeed = findClusterSeed(trainingSeed.x + randInt(rng, -3, 3), trainingSeed.y + randInt(rng, -3, 3), 4, inTrainingZone) || trainingSeed;
-    spawnAround(trainingSeed.x, trainingSeed.y, 3, { spread: 3, minDist: 1.7, zoneFn: inTrainingZone });
-    spawnAround(subSeed.x, subSeed.y, 2, { spread: 3, minDist: 1.9, zoneFn: inTrainingZone });
-  }
-
-  // Top off inside the training zone if obstacles blocked initial packs.
-  for (let a=0; a<2400 && mobs.length < TRAINING_TARGET; a++){
-    const c = findClusterSeed(trainingCenterX, trainingCenterY, 9, inTrainingZone);
-    if (!c) break;
-    spawnAround(c.x, c.y, 1, { spread: 2, minDist: 1.8, zoneFn: inTrainingZone });
-  }
-
-  // Add a small number of world strays so the world doesn't feel staged.
-  const outskirts = [
-    { kind: "river", count: 1 },
-    { kind: "woods", count: 1 },
-  ];
-  for (const n of outskirts){
-    if (mobs.length >= TOTAL_TARGET) break;
-    const c = findNestTile(n.kind, southOfRiver);
-    if (!c) continue;
-    spawnAround(c.x, c.y, n.count, { spread: 4, minDist: 2.4, zoneFn: southOfRiver });
-  }
-
-  // Global top-off as a safety net.
-  for (let a=0; a<9000 && mobs.length < TOTAL_TARGET; a++){
-    const x = randInt(rng, 0, W-1);
-    const y = randInt(rng, RIVER_Y + 2, H-1);
-    if (!tileOkForRat(x,y)) continue;
-    if (!southOfRiver(x,y)) continue;
-    if (tooCloseToExistingRat(x,y, 2.4 + rng()*0.6)) continue;
-    spawnRat(x,y);
-  }
-
-  // Mid-tier mobs: a goblin pack north of the river near (37,13).
-  const GOBLIN_TARGET = 4;
-  const goblinAnchor = { x: 37, y: 13 };
-  const inGoblinZone = (x,y) => (
-    y <= (RIVER_Y - 5) &&
-    Math.abs(x - goblinAnchor.x) <= 7 &&
-    Math.abs(y - goblinAnchor.y) <= 5
-  );
-  const goblinCount = () => mobs.reduce((n,m) => n + ((m.alive && m.type === "goblin") ? 1 : 0), 0);
-
-  const goblinSeed =
-    findClusterSeed(goblinAnchor.x, goblinAnchor.y, 4, inGoblinZone) ||
-    findClusterSeed(goblinAnchor.x, goblinAnchor.y, 8, inGoblinZone);
-  if (goblinSeed){
-    spawnAround(goblinSeed.x, goblinSeed.y, GOBLIN_TARGET, {
-      spread: 4,
-      minDist: 2.2,
-      zoneFn: inGoblinZone,
-      spawnFn: spawnGoblin
+    seedMobsModule({
+      mobs,
+      resources,
+      map,
+      inBounds,
+      isWalkable,
+      nearTileTypeInMap,
+      startCastle,
+      vendorShop,
+      southKeep,
+      VENDOR_TILE,
+      OVERWORLD_LADDER_DOWN,
+      RIVER_Y,
+      worldSeed: worldState.seed,
+      makeRng,
+      randInt,
+      keyXY,
+      inRectMargin,
+      W,
+      H,
+      player,
+      clamp,
+      placeMob
     });
   }
-
-  for (let a=0; a<3200 && goblinCount() < GOBLIN_TARGET; a++){
-    const x = goblinAnchor.x + randInt(rng, -7, 7);
-    const y = goblinAnchor.y + randInt(rng, -5, 5);
-    if (!inGoblinZone(x,y)) continue;
-    if (!tileOkForRat(x,y)) continue;
-    if (tooCloseToExistingRat(x,y, 2.2 + rng()*0.6)) continue;
-    spawnGoblin(x,y);
-  }
-
-}
 
   const buildBaseInteractables = () => buildBaseInteractablesModule({
     startCastle,
@@ -2131,53 +1948,16 @@ function consumeFoodFromInv(invIndex){
     }
   }
 
-  const hudChatEl = document.getElementById("hudChat");
-  const hudChatTabEl = document.getElementById("hudChatTab");
-  const hudChatHeaderEl = document.getElementById("hudChatHeader");
-  const hudChatMinEl = document.getElementById("hudChatMin");
-  const hudChatResizeEl = document.getElementById("hudChatResize");
-  const chatInputEl = document.getElementById("chatInput");
-  const chatSendEl = document.getElementById("chatSend");
-
-  function saveChatUI(){
-    writeStoredJSON(CHAT_UI_KEY, {
-      left: chatUI.left|0,
-      top: Number.isFinite(chatUI.top) ? (chatUI.top|0) : null,
-      width: chatUI.width|0,
-      height: chatUI.height|0,
-      collapsed: !!chatUI.collapsed
-    });
-  }
-
-  function loadChatUI(){
-    const d = readStoredJSON(CHAT_UI_KEY, null);
-    if (!d) return;
-    chatUI.left = Number.isFinite(d?.left) ? (d.left|0) : chatUI.left;
-    chatUI.top = Number.isFinite(d?.top) ? (d.top|0) : null;
-    chatUI.width = Number.isFinite(d?.width) ? (d.width|0) : chatUI.width;
-    chatUI.height = Number.isFinite(d?.height) ? (d.height|0) : chatUI.height;
-    chatUI.collapsed = !!d?.collapsed;
-  }
-
-  function applyChatUI(){
-    if (!hudChatEl) return;
-    chatUI.left = clamp(chatUI.left|0, 6, Math.max(6, window.innerWidth - 110));
-    chatUI.width = clamp(chatUI.width|0, 300, Math.max(300, window.innerWidth - 20));
-    chatUI.height = clamp(chatUI.height|0, 190, Math.max(190, window.innerHeight - 20));
-
-    hudChatEl.classList.toggle("collapsed", !!chatUI.collapsed);
-    hudChatEl.style.left = `${chatUI.left}px`;
-    if (Number.isFinite(chatUI.top)){
-      chatUI.top = clamp(chatUI.top|0, 6, Math.max(6, window.innerHeight - 60));
-      hudChatEl.style.top = `${chatUI.top}px`;
-      hudChatEl.style.bottom = "auto";
-    } else {
-      hudChatEl.style.top = "auto";
-      hudChatEl.style.bottom = "12px";
-    }
-    hudChatEl.style.width = `${chatUI.width}px`;
-    hudChatEl.style.height = `${chatUI.height}px`;
-  }
+  const { saveChatUI, loadChatUI, applyChatUI } = initChatUi({
+    document,
+    window,
+    chatUI,
+    clamp,
+    chatLine,
+    CHAT_UI_KEY,
+    readStoredJSON,
+    writeStoredJSON
+  });
 
   function saveWindowsUI(){
     writeStoredJSON(WINDOWS_UI_KEY, {
@@ -2218,91 +1998,6 @@ function consumeFoodFromInv(invIndex){
     }
   }
 
-  (function initChatUIControls(){
-    if (!hudChatEl) return;
-
-    let drag = null;
-    let resize = null;
-
-    if (hudChatHeaderEl){
-      hudChatHeaderEl.addEventListener("mousedown", (e)=>{
-        if (e.button !== 0 || chatUI.collapsed) return;
-        const rect = hudChatEl.getBoundingClientRect();
-        drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
-        chatUI.top = rect.top|0;
-      });
-    }
-
-    if (hudChatResizeEl){
-      hudChatResizeEl.addEventListener("mousedown", (e)=>{
-        if (e.button !== 0 || chatUI.collapsed) return;
-        e.preventDefault();
-        resize = {
-          sx: e.clientX,
-          sy: e.clientY,
-          sw: chatUI.width|0,
-          sh: chatUI.height|0
-        };
-      });
-    }
-
-    if (hudChatMinEl){
-      hudChatMinEl.addEventListener("click", ()=>{
-        chatUI.collapsed = true;
-        applyChatUI();
-        saveChatUI();
-      });
-    }
-
-    if (hudChatTabEl){
-      hudChatTabEl.addEventListener("click", ()=>{
-        chatUI.collapsed = false;
-        applyChatUI();
-        saveChatUI();
-      });
-    }
-
-    const sendChatText = ()=>{
-      if (!chatInputEl) return;
-      const msg = String(chatInputEl.value || "").trim();
-      if (!msg) return;
-      chatLine(`<span class="muted">You:</span> ${msg}`);
-      chatInputEl.value = "";
-    };
-
-    if (chatSendEl) chatSendEl.addEventListener("click", sendChatText);
-    if (chatInputEl){
-      chatInputEl.addEventListener("keydown", (e)=>{
-        if (e.key !== "Enter") return;
-        e.preventDefault();
-        sendChatText();
-      });
-    }
-
-    window.addEventListener("mousemove", (e)=>{
-      if (drag){
-        chatUI.left = (e.clientX - drag.dx)|0;
-        chatUI.top = (e.clientY - drag.dy)|0;
-        applyChatUI();
-      }
-      if (resize){
-        chatUI.width = (resize.sw + (e.clientX - resize.sx))|0;
-        chatUI.height = (resize.sh + (e.clientY - resize.sy))|0;
-        applyChatUI();
-      }
-    });
-
-    window.addEventListener("mouseup", ()=>{
-      if (drag || resize) saveChatUI();
-      drag = null;
-      resize = null;
-    });
-
-    window.addEventListener("resize", ()=>{
-      applyChatUI();
-      saveChatUI();
-    });
-  })();
 
   function tileCenter(x,y){ return {cx:x*TILE+TILE/2, cy:y*TILE+TILE/2}; }
   function syncPlayerPix(){ const {cx,cy}=tileCenter(player.x,player.y); player.px=cx; player.py=cy; }
@@ -4732,7 +4427,10 @@ function consumeFoodFromInv(invIndex){
     player,
     ensureWalkIntoRangeAndAct,
     setPathTo,
-    getEntityAt
+    getEntityAt,
+    interactables,
+    Items,
+    FISHING_SPOT_TABLES
   });
 
 
@@ -4821,6 +4519,7 @@ function consumeFoodFromInv(invIndex){
     clamp,
     useState,
     COOK_RECIPES,
+    FISHING_SPOT_TABLES,
     SMELTING_TIERS,
     MINING_RESOURCE_RULES,
     hasItem,
@@ -8485,6 +8184,7 @@ function drawCauldron(x, y){
     getActiveZone,
     inv,
     wallet,
+    Items,
     player,
     mobs,
     resources,
@@ -8508,6 +8208,11 @@ function drawCauldron(x, y){
     deserialize,
     getQuestSnapshot,
     emitQuestEvent: trackQuestEvent,
+    getTownRenown,
+    grantTownRenown,
+    addGold,
+    addToInventory,
+    renderInv,
     clamp,
     update,
     render

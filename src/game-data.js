@@ -68,6 +68,20 @@ export const COOK_RECIPES = {
   chaos_koi: { out: "cooked_chaos_koi", xp: 48, verb: "cook a chaos koi" },
 };
 
+export const FISHING_SPOT_TABLES = {
+  fish: [
+    { id: "goldfish", level: 1, xp: 15 },
+    { id: "clownfish", level: 10, xp: 22 },
+    { id: "pufferfish", level: 20, xp: 29 },
+    { id: "catfish", level: 30, xp: 36 }
+  ],
+  fish_dock: [
+    { id: "swordfish", level: 40, xp: 43 },
+    { id: "anglerfish", level: 55, xp: 51 },
+    { id: "moonfish", level: 70, xp: 61 }
+  ]
+};
+
 export const CLASS_DEFS = {
   Warrior: { color: "#ef4444" },
   Ranger: { color: "#facc15" },

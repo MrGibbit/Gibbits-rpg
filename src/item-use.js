@@ -39,7 +39,20 @@ export function createItemUse(deps) {
     invUseStateEl.textContent = `Use: ${item ? item.name : id}`;
   }
 
+  function hasInventoryItem(id) {
+    return inv.some((slot) => slot && slot.id === id);
+  }
+
+  function ensureToolInInventory(toolId) {
+    if (!toolId) return false;
+    if (hasInventoryItem(toolId)) return true;
+    chatLine(`<span class="warn">You need a ${Items[toolId]?.name ?? toolId} to do that.</span>`);
+    setUseState(null);
+    return false;
+  }
+
   function handleUseOnSelf(toolId) {
+    if (!ensureToolInInventory(toolId)) return;
     if (toolId === "xp_lamp") {
       if (typeof onRubXpLamp === "function") {
         onRubXpLamp();
@@ -60,6 +73,7 @@ export function createItemUse(deps) {
   }
 
   function tryItemOnItem(toolId, targetId, targetIndex) {
+    if (!ensureToolInInventory(toolId)) return true;
     if (toolId === "bone_meal") {
       showBoneMealPlaceholder();
       return true;
