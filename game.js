@@ -1095,9 +1095,24 @@ function pruneExpiredGroundLoot(){
 
     qty = Math.max(1, qty|0);
     const forceInventory = !!opts.forceInventory;
+    const noted = !!opts.noted;
     // gold never takes inventory slots
     if (id === GOLD_ITEM_ID){
       addGold(qty);
+      return qty;
+    }
+
+    if (noted){
+      const si = inv.findIndex(s => s && s.id === id && s.noted);
+      if (si >= 0){
+        inv[si].qty = Math.max(1, inv[si].qty|0) + qty;
+        renderInv();
+        return qty;
+      }
+      const empty = inv.findIndex(s => !s);
+      if (empty < 0) return 0;
+      inv[empty] = { id, qty, noted: true };
+      renderInv();
       return qty;
     }
 
@@ -1134,13 +1149,17 @@ function pruneExpiredGroundLoot(){
     return added;
   }
 
-  function hasItem(id){ return inv.some(s=>s && s.id===id); }
+  function hasItem(id, opts={}){
+    const includeNoted = !!opts.includeNoted;
+    return inv.some(s => s && s.id === id && (includeNoted || !s.noted));
+  }
 
-  function removeItemsFromInventory(id, qty=1){
+  function removeItemsFromInventory(id, qty=1, opts={}){
   const item = Items[id];
   if (!item) return false;
 
   qty = Math.max(1, Math.floor(qty || 1));
+  const includeNoted = !!opts.includeNoted;
 
   // Always remove from inventory first (including ammo moved from quiver).
   // If ammo is still needed after that, fall back to quiver.
@@ -1149,18 +1168,30 @@ function pruneExpiredGroundLoot(){
     for (let i=0; i<inv.length && remaining>0; i++){
       const s = inv[i];
       if (!s || s.id !== id) continue;
+      if (s.noted && !includeNoted) continue;
 
       const have = Math.max(1, s.qty|0);
       const take = Math.min(remaining, have);
       const left = have - take;
 
-      inv[i] = left > 0 ? { id, qty: left } : null;
+      inv[i] = left > 0 ? { id, qty: left, noted: s.noted } : null;
       remaining -= take;
     }
   } else {
     // non-stack items: remove one-per-slot
     for (let i=0; i<inv.length && remaining>0; i++){
-      if (inv[i] && inv[i].id === id){
+      const s = inv[i];
+      if (!s || s.id !== id) continue;
+      if (s.noted){
+        if (!includeNoted) continue;
+        const have = Math.max(1, s.qty|0);
+        const take = Math.min(remaining, have);
+        const left = have - take;
+        inv[i] = left > 0 ? { id, qty: left, noted: true } : null;
+        remaining -= take;
+        continue;
+      }
+      if (s.id === id){
         inv[i] = null;
         remaining--;
       }
@@ -2779,6 +2810,7 @@ function consumeFoodFromInv(invIndex){
   const bankCountEl = document.getElementById("bankCount");
   const bankExpandBtn = document.getElementById("bankExpandBtn");
   const bankExpandMetaEl = document.getElementById("bankExpandMeta");
+  const bankWithdrawNoteToggle = document.getElementById("bankWithdrawNoteToggle");
   const smithingListEl = document.getElementById("smithingList");
   const smithingLevelPillEl = document.getElementById("smithingLevelPill");
   const blacksmithGoldPillEl = document.getElementById("blacksmithGoldPill");
@@ -2872,13 +2904,15 @@ function consumeFoodFromInv(invIndex){
       } else {
         const item = Items[s.id];
         const qty = (s.qty|0) || 1;
+        const baseName = item?.name ?? s.id;
+        const displayName = formatItemDisplayName(baseName, qty, !!s.noted);
         slot.innerHTML = `
           <div class="icon">${item?.flatIcon ?? item?.icon ?? UNKNOWN_ICON}</div>
-          <div class="name">${item?.name ?? s.id}</div>
+          <div class="name">${displayName}</div>
           ${qty > 1 ? `<div class="qty">${qty}</div>` : ``}
         `;
-        const stats = getItemCombatStatText(s.id);
-        const tip = `${item?.name ?? s.id}${qty>1 ? ` x${qty}` : ""}${stats ? `\n${stats}` : ""}`;
+        const stats = s.noted ? "" : getItemCombatStatText(s.id);
+        const tip = `${displayName}${qty>1 ? ` x${qty}` : ""}${stats ? `\n${stats}` : ""}`;
         slot.removeAttribute("title");
         slot.dataset.tooltip = tip;
       }
@@ -3118,6 +3152,11 @@ function consumeFoodFromInv(invIndex){
       return itemName.slice(0, -1) + "ies";
     }
     return itemName + "s";
+  }
+
+  function formatItemDisplayName(itemName, quantity, noted=false) {
+    const base = pluralizeItemName(itemName, quantity);
+    return noted ? `${base} (noted)` : base;
   }
 
   // State for town projects UI rendering
@@ -4071,7 +4110,7 @@ function consumeFoodFromInv(invIndex){
       const id = s.id;
       const item = Items[id];
       if (!item) continue;
-      const qty = item.stack ? Math.max(1, s.qty|0) : 1;
+      const qty = (item.stack || s.noted) ? Math.max(1, s.qty|0) : 1;
       seen.set(id, (seen.get(id)|0) + qty);
     }
 
@@ -4099,7 +4138,7 @@ function consumeFoodFromInv(invIndex){
       btn1.className = "shopBtn";
       btn1.textContent = "Sell x1";
       btn1.onclick = () => {
-        if (!removeItemsFromInventory(id, 1)){
+        if (!removeItemsFromInventory(id, 1, { includeNoted: true })){
           chatLine(`<span class="warn">You don't have that.</span>`);
           return;
         }
@@ -4110,13 +4149,42 @@ function consumeFoodFromInv(invIndex){
       actions.appendChild(btn1);
 
       if (count > 1){
+        const btnX = document.createElement("button");
+        btnX.className = "shopBtn";
+        btnX.textContent = "Sell X...";
+        btnX.onclick = () => {
+          openNumberPrompt({
+            title: "Sell Items",
+            sub: `How many ${it.name}?`,
+            label: "Amount",
+            defaultValue: 10,
+            min: 1,
+            max: count,
+            onConfirm: (want) => {
+              let sold = 0;
+              for (let i=0; i<want; i++){
+                if (!removeItemsFromInventory(id, 1, { includeNoted: true })) break;
+                sold++;
+              }
+              if (sold){
+                addGold(price * sold);
+                chatLine(`<span class="good">Sold ${sold}x ${it.name}.</span>`);
+              }
+              renderVendorAndInventoryViews();
+            }
+          });
+        };
+        actions.appendChild(btnX);
+      }
+
+      if (count > 1){
         const btnAll = document.createElement("button");
         btnAll.className = "shopBtn";
         btnAll.textContent = "Sell all";
         btnAll.onclick = () => {
           let sold = 0;
           for (let i=0; i<count; i++){
-            if (!removeItemsFromInventory(id, 1)) break;
+            if (!removeItemsFromInventory(id, 1, { includeNoted: true })) break;
             sold++;
           }
           if (sold){
@@ -4255,6 +4323,14 @@ function consumeFoodFromInv(invIndex){
   }
 
   // ---------- Bank interactions ----------
+  let bankWithdrawNoted = false;
+
+  function updateBankWithdrawNoteToggle(){
+    if (!bankWithdrawNoteToggle) return;
+    bankWithdrawNoteToggle.textContent = bankWithdrawNoted ? "Withdraw: Note" : "Withdraw: Item";
+    bankWithdrawNoteToggle.classList.toggle("active", bankWithdrawNoted);
+  }
+
   function requireBankAccess(message){
     if (availability.bank) return true;
     chatLine(`<span class="warn">${message}</span>`);
@@ -4273,7 +4349,7 @@ function consumeFoodFromInv(invIndex){
 
     if (!requireBankAccess("You must be at a bank chest to bank items.")) return;
 
-    if (item.stack){
+    if (item.stack || s.noted){
       const have = Math.max(1, s.qty|0);
       const want = qty==null ? 1 : Math.min(Math.max(1, qty|0), have);
       const ok = addToBank(bank, id, want);
@@ -4282,7 +4358,7 @@ function consumeFoodFromInv(invIndex){
         return;
       }
       const left = have - want;
-      inv[invIndex] = left > 0 ? { id, qty: left } : null;
+      inv[invIndex] = left > 0 ? { id, qty: left, noted: s.noted } : null;
       renderInventoryAndBank();
       return;
     }
@@ -4318,13 +4394,15 @@ function consumeFoodFromInv(invIndex){
     if (moved>0){ renderInventoryAndBank(); }
   }
 
-  function countInvQtyById(id){
+  function countInvQtyById(id, opts={}){
     const item = Items[id];
     if (!item) return 0;
+    const includeNoted = !!opts.includeNoted;
     let total = 0;
     for (const s of inv){
       if (!s || s.id !== id) continue;
-      total += item.stack ? Math.max(1, s.qty|0) : 1;
+      if (s.noted && !includeNoted) continue;
+      total += (item.stack || s.noted) ? Math.max(1, s.qty|0) : 1;
     }
     return total;
   }
@@ -4338,17 +4416,18 @@ function consumeFoodFromInv(invIndex){
 
     if (!requireBankAccess("You must be at a bank chest to bank items.")) return;
 
-    const have = countInvQtyById(id);
+    const have = countInvQtyById(id, { includeNoted: true });
     if (have <= 0) return;
     let remaining = qty==null ? have : Math.min(Math.max(1, qty|0), have);
     let moved = 0;
 
-    if (item.stack){
+    const hasNoted = inv.some(s => s && s.id === id && s.noted);
+    if (item.stack || hasNoted){
       for (let i=0; i<inv.length && remaining>0; i++){
         const s = inv[i];
         if (!s || s.id !== id) continue;
 
-        const stackQty = Math.max(1, s.qty|0);
+        const stackQty = (s.noted || item.stack) ? Math.max(1, s.qty|0) : 1;
         const take = Math.min(remaining, stackQty);
         const ok = addToBank(bank, id, take);
         if (!ok){
@@ -4357,7 +4436,7 @@ function consumeFoodFromInv(invIndex){
         }
 
         const left = stackQty - take;
-        inv[i] = left > 0 ? { id, qty: left } : null;
+        inv[i] = left > 0 ? { id, qty: left, noted: s.noted } : null;
         moved += take;
         remaining -= take;
       }
@@ -4397,9 +4476,19 @@ function consumeFoodFromInv(invIndex){
     const item=Items[s.id];
     if (!item) return;
 
+    const have = Math.max(1, s.qty|0);
+    const want = qty==null ? have : Math.min(Math.max(1, qty|0), have);
+
+    if (bankWithdrawNoted){
+      const added = addToInventory(s.id, want, { noted: true, forceInventory: true });
+      if (added <= 0){ chatLine(`<span class="warn">Inventory full.</span>`); return; }
+      s.qty = have - added;
+      if (s.qty<=0) bank[bankIndex]=null;
+      renderBank();
+      return;
+    }
+
     if (item.ammo){
-      const have = Math.max(1, s.qty|0);
-      const want = qty==null ? have : Math.min(Math.max(1, qty|0), have);
       addToQuiver(s.id, want);
       s.qty -= want;
       if (s.qty<=0) bank[bankIndex]=null;
@@ -4407,9 +4496,6 @@ function consumeFoodFromInv(invIndex){
       chatLine(`<span class="muted">You add ${want}x ${Items.wooden_arrow.name} to your quiver.</span>`);
       return;
     }
-
-    const have = Math.max(1, s.qty|0);
-    const want = qty==null ? have : Math.min(Math.max(1, qty|0), have);
     const added = addToInventory(s.id, want);
     if (added <= 0){ chatLine(`<span class="warn">Inventory full.</span>`); return; }
     s.qty = have - added;
@@ -4459,13 +4545,20 @@ function consumeFoodFromInv(invIndex){
       const item=Items[s.id];
       if (!item) continue;
 
-      if (item.ammo){
-        addToQuiver(s.id, Math.max(1, s.qty|0));
-        bank[i]=null;
+      const have = Math.max(1, s.qty|0);
+      if (bankWithdrawNoted){
+        const added = addToInventory(s.id, have, { noted: true, forceInventory: true });
+        if (added <= 0) break;
+        s.qty = have - added;
+        if (s.qty<=0) bank[i]=null;
         continue;
       }
 
-      const have = Math.max(1, s.qty|0);
+      if (item.ammo){
+        addToQuiver(s.id, have);
+        bank[i]=null;
+        continue;
+      }
       const added = addToInventory(s.id, have);
       if (added <= 0) break;
       s.qty = have - added;
@@ -4473,6 +4566,14 @@ function consumeFoodFromInv(invIndex){
     }
     renderInventoryAndBank();
   });
+
+  if (bankWithdrawNoteToggle){
+    bankWithdrawNoteToggle.addEventListener("click", () => {
+      bankWithdrawNoted = !bankWithdrawNoted;
+      updateBankWithdrawNoteToggle();
+    });
+    updateBankWithdrawNoteToggle();
+  }
 
   if (bankExpandBtn){
     bankExpandBtn.addEventListener("click", () => {
@@ -4563,7 +4664,8 @@ function consumeFoodFromInv(invIndex){
     handleUseOnSelf,
     tryItemOnItem,
     isStickyUseTool,
-    emptyInvSlots
+    emptyInvSlots,
+    openNumberPrompt
   });
 
   // ---------- Character creation ----------
@@ -4588,8 +4690,79 @@ function consumeFoodFromInv(invIndex){
   const deleteCharOverlay = document.getElementById("deleteCharOverlay");
   const deleteCharCancel = document.getElementById("deleteCharCancel");
   const deleteCharConfirm = document.getElementById("deleteCharConfirm");
+  const numberPromptOverlay = document.getElementById("numberPromptOverlay");
+  const numberPromptTitle = document.getElementById("numberPromptTitle");
+  const numberPromptSub = document.getElementById("numberPromptSub");
+  const numberPromptLabel = document.getElementById("numberPromptLabel");
+  const numberPromptInput = document.getElementById("numberPromptInput");
+  const numberPromptCancel = document.getElementById("numberPromptCancel");
+  const numberPromptConfirm = document.getElementById("numberPromptConfirm");
   const townboardingOverlay = document.getElementById("townboardingOverlay");
   const townboardingBtn = document.getElementById("townboardingBtn");
+
+  let numberPromptOnConfirm = null;
+
+  function closeNumberPrompt(){
+    if (!numberPromptOverlay) return;
+    numberPromptOverlay.style.display = "none";
+    numberPromptOnConfirm = null;
+  }
+
+  function openNumberPrompt({
+    title = "Enter Amount",
+    sub = "How many?",
+    label = "Amount",
+    defaultValue = 1,
+    min = 1,
+    max = null,
+    onConfirm
+  } = {}){
+    if (!numberPromptOverlay || !numberPromptInput) return;
+    if (numberPromptTitle) numberPromptTitle.textContent = title;
+    if (numberPromptSub) numberPromptSub.textContent = sub;
+    if (numberPromptLabel) numberPromptLabel.textContent = label;
+
+    numberPromptInput.value = String(defaultValue ?? min ?? 1);
+    numberPromptInput.min = String(min ?? 1);
+    if (max != null && Number.isFinite(max)) {
+      numberPromptInput.max = String(max);
+    } else {
+      numberPromptInput.removeAttribute("max");
+    }
+
+    numberPromptOnConfirm = typeof onConfirm === "function" ? onConfirm : null;
+    numberPromptOverlay.style.display = "flex";
+    numberPromptInput.focus();
+    numberPromptInput.select();
+  }
+
+  function confirmNumberPrompt(){
+    if (!numberPromptInput) return;
+    const raw = parseInt(numberPromptInput.value || "", 10);
+    const min = Math.max(1, parseInt(numberPromptInput.min || "1", 10) || 1);
+    const maxAttr = numberPromptInput.max;
+    const max = maxAttr ? parseInt(maxAttr, 10) : null;
+    let val = Number.isFinite(raw) ? raw : min;
+    val = Math.max(min, val);
+    if (max != null && Number.isFinite(max)) val = Math.min(max, val);
+    const cb = numberPromptOnConfirm;
+    closeNumberPrompt();
+    if (cb) cb(val);
+  }
+
+  if (numberPromptConfirm) numberPromptConfirm.addEventListener("click", confirmNumberPrompt);
+  if (numberPromptCancel) numberPromptCancel.addEventListener("click", closeNumberPrompt);
+  if (numberPromptInput) {
+    numberPromptInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        confirmNumberPrompt();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        closeNumberPrompt();
+      }
+    });
+  }
 
   const {
     loadCharacterList,

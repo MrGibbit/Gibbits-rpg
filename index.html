@@ -325,6 +325,7 @@
         <div class="btnrow">
           <button id="bankDepositAll">Deposit All</button>
           <button id="bankWithdrawAll">Withdraw All</button>
+          <button id="bankWithdrawNoteToggle">Withdraw: Item</button>
           <button id="bankExpandBtn">Expand +7 Slots</button>
           <div class="pill" id="bankHint">Click inv to deposit, click bank to withdraw</div>
           <div class="pill" id="bankExpandMeta">Next expansion: 250 gold</div>
@@ -574,6 +575,24 @@
         <div class="btnrow" style="margin-top:12px;">
           <button id="deleteCharCancel">Cancel</button>
           <button id="deleteCharConfirm">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Number prompt overlay -->
+    <div id="numberPromptOverlay" class="overlay" style="display:none;">
+      <div class="modal">
+        <h2 id="numberPromptTitle">Enter Amount</h2>
+        <p class="sub" id="numberPromptSub">How many?</p>
+
+        <div class="formRow">
+          <label id="numberPromptLabel" for="numberPromptInput">Amount</label>
+          <input id="numberPromptInput" type="number" min="1" step="1" />
+        </div>
+
+        <div class="btnrow" style="margin-top:12px;">
+          <button id="numberPromptCancel">Cancel</button>
+          <button id="numberPromptConfirm">OK</button>
         </div>
       </div>
     </div>

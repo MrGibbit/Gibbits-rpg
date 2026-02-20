@@ -32,7 +32,8 @@ export function attachInventoryContextMenus(deps) {
     unequipSlot,
     getQuiverCount,
     moveAmmoFromQuiverToInventory,
-    onRubXpLamp
+    onRubXpLamp,
+    openNumberPrompt
   } = deps;
 
   invGrid.addEventListener("contextmenu", (e) => {
@@ -46,7 +47,7 @@ export function attachInventoryContextMenus(deps) {
     const item = Items[s.id];
 
     if (windowsOpen.bank) {
-      const have = countInvQtyById(s.id);
+      const have = countInvQtyById(s.id, { includeNoted: true });
       const opts = [];
       opts.push({ label: "Deposit 1", onClick: () => depositByIdFromInv(idx, 1) });
       opts.push({ label: "Deposit 5", onClick: () => depositByIdFromInv(idx, 5) });
@@ -54,12 +55,31 @@ export function attachInventoryContextMenus(deps) {
       opts.push({
         label: "Deposit X...",
         onClick: () => {
-          const v = prompt("Deposit how many?", "10");
-          const n = Math.max(1, parseInt(v || "", 10) || 0);
-          if (n > 0) depositByIdFromInv(idx, n);
+          openNumberPrompt({
+            title: "Deposit Items",
+            sub: `How many ${item?.name ?? s.id}?`,
+            label: "Amount",
+            defaultValue: 10,
+            min: 1,
+            max: have,
+            onConfirm: (n) => depositByIdFromInv(idx, n)
+          });
         }
       });
       opts.push({ label: "Deposit All", onClick: () => depositByIdFromInv(idx, have) });
+      openCtxMenu(e.clientX, e.clientY, opts);
+      return;
+    }
+
+    if (s.noted) {
+      const opts = [
+        {
+          label: "Notes can only be sold or banked",
+          onClick: () => {
+            chatLine(`<span class="muted">Notes can only be sold or banked.</span>`);
+          }
+        }
+      ];
       openCtxMenu(e.clientX, e.clientY, opts);
       return;
     }
@@ -119,31 +139,38 @@ export function attachInventoryContextMenus(deps) {
     opts.push({
       label: "Drop X...",
       onClick: () => {
-        const v = prompt("Drop how many?", "10");
-        const n = Math.max(1, parseInt(v || "", 10) || 0);
-        if (!n) return;
-
-        lockManualDropAt(player.x, player.y);
-        let dropped = 0;
-        if (item?.stack) {
-          const have = Math.max(1, s.qty | 0);
-          dropped = Math.min(n, have);
-          const left = have - dropped;
-          inv[idx] = left > 0 ? { id: s.id, qty: left } : null;
-          if (dropped > 0) addGroundLoot(player.x, player.y, s.id, dropped);
-        } else {
-          let remaining = n;
-          for (let i = 0; i < inv.length && remaining > 0; i++) {
-            if (inv[i] && inv[i].id === s.id) {
-              inv[i] = null;
-              addGroundLoot(player.x, player.y, s.id, 1);
-              remaining--;
+        const have = countInvQtyById(s.id);
+        openNumberPrompt({
+          title: "Drop Items",
+          sub: `How many ${item?.name ?? s.id}?`,
+          label: "Amount",
+          defaultValue: 10,
+          min: 1,
+          max: have,
+          onConfirm: (n) => {
+            lockManualDropAt(player.x, player.y);
+            let dropped = 0;
+            if (item?.stack) {
+              const stackHave = Math.max(1, s.qty | 0);
+              dropped = Math.min(n, stackHave);
+              const left = stackHave - dropped;
+              inv[idx] = left > 0 ? { id: s.id, qty: left } : null;
+              if (dropped > 0) addGroundLoot(player.x, player.y, s.id, dropped);
+            } else {
+              let remaining = n;
+              for (let i = 0; i < inv.length && remaining > 0; i++) {
+                if (inv[i] && inv[i].id === s.id) {
+                  inv[i] = null;
+                  addGroundLoot(player.x, player.y, s.id, 1);
+                  remaining--;
+                }
+              }
+              dropped = n - remaining;
             }
+            renderInv();
+            chatLine(`<span class="muted">You drop ${dropped}x ${item?.name ?? s.id}.</span>`);
           }
-          dropped = n - remaining;
-        }
-        renderInv();
-        chatLine(`<span class="muted">You drop ${dropped}x ${item?.name ?? s.id}.</span>`);
+        });
       }
     });
 
@@ -168,9 +195,15 @@ export function attachInventoryContextMenus(deps) {
     opts.push({
       label: `Withdraw X...${suffix}`,
       onClick: () => {
-        const v = prompt("Withdraw how many?", "10");
-        const n = Math.max(1, parseInt(v || "", 10) || 0);
-        if (n > 0) withdrawFromBank(idx, n);
+        openNumberPrompt({
+          title: "Withdraw Items",
+          sub: `How many ${item?.name ?? s.id}?`,
+          label: "Amount",
+          defaultValue: 10,
+          min: 1,
+          max: have,
+          onConfirm: (n) => withdrawFromBank(idx, n)
+        });
       }
     });
     opts.push({ label: `Withdraw All${suffix}`, onClick: () => withdrawFromBank(idx, have) });
@@ -211,9 +244,16 @@ export function attachInventoryContextMenus(deps) {
       {
         label: "Move X...",
         onClick: () => {
-          const v = prompt("Move how many arrows to inventory?", "10");
-          const n = Math.max(1, parseInt(v || "", 10) || 0);
-          if (n > 0) moveArrowsToInventory(n);
+          const have = getQuiverCount();
+          openNumberPrompt({
+            title: "Move Arrows",
+            sub: "How many arrows to inventory?",
+            label: "Amount",
+            defaultValue: 10,
+            min: 1,
+            max: have,
+            onConfirm: (n) => moveArrowsToInventory(n)
+          });
         }
       },
       { label: "Move All to Inventory", onClick: () => moveArrowsToInventory(null) }

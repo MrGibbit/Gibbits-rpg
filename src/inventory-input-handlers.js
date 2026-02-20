@@ -40,6 +40,11 @@ export function attachInventoryInputHandlers(deps) {
       return;
     }
 
+    if (inv[idx].noted) {
+      chatLine(`<span class="muted">Notes can only be sold or banked.</span>`);
+      return;
+    }
+
     if (consumeFoodFromInv(idx)) return;
 
     if (useState.activeItemId) {

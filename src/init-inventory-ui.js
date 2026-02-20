@@ -41,7 +41,8 @@ export function initInventoryUi(deps) {
     handleUseOnSelf,
     tryItemOnItem,
     isStickyUseTool,
-    emptyInvSlots
+    emptyInvSlots,
+    openNumberPrompt
   } = deps;
 
   const { openCtxMenu, closeCtxMenu } = createContextMenuUI({
@@ -93,7 +94,8 @@ export function initInventoryUi(deps) {
     unequipSlot,
     getQuiverCount,
     moveAmmoFromQuiverToInventory,
-    onRubXpLamp
+    onRubXpLamp,
+    openNumberPrompt
   });
 
   attachInventoryInputHandlers({
