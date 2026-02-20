@@ -7630,28 +7630,48 @@ function drawDungeonDecor(){
     return !(x < startX - 1 || x > endX + 1 || y < startY - 1 || y > endY + 1);
   }
 
-  function drawWallTorch(tx, ty, side = 1){
-    if (!inView(tx, ty)) return;
-    const px = tx * TILE;
-    const py = ty * TILE;
-    const wx = px + (side > 0 ? 24 : 8);
+  // Batch all torch glows first (reduces state changes)
+  for (const torch of DUNGEON_TORCHES) {
+    if (!inView(torch.x, torch.y)) continue;
+    const px = torch.x * TILE;
+    const py = torch.y * TILE;
+    const wx = px + (torch.side > 0 ? 24 : 8);
     const wy = py + 10;
-    const flick = 0.65 + 0.35 * Math.sin(t * 0.014 + tx * 1.8 + ty * 1.3);
-
+    const flick = 0.65 + 0.35 * Math.sin(t * 0.014 + torch.x * 1.8 + torch.y * 1.3);
+    
     ctx.fillStyle = `rgba(251,191,36,${0.12 * flick})`;
     ctx.beginPath();
     ctx.arc(wx, wy + 4, 10, 0, Math.PI * 2);
     ctx.fill();
+  }
 
-    ctx.strokeStyle = "#fbbf24";
-    ctx.lineWidth = 1.2;
+  // Batch all torch holders
+  ctx.strokeStyle = "#fbbf24";
+  ctx.lineWidth = 1.2;
+  for (const torch of DUNGEON_TORCHES) {
+    if (!inView(torch.x, torch.y)) continue;
+    const px = torch.x * TILE;
+    const py = torch.y * TILE;
+    const wx = px + (torch.side > 0 ? 24 : 8);
+    const wy = py + 10;
+    
     ctx.beginPath();
     ctx.moveTo(wx - 2, wy - 3);
     ctx.lineTo(wx + 2, wy - 3);
     ctx.moveTo(wx, wy - 3);
     ctx.lineTo(wx, wy + 2);
     ctx.stroke();
+  }
 
+  // Batch all torch flames
+  for (const torch of DUNGEON_TORCHES) {
+    if (!inView(torch.x, torch.y)) continue;
+    const px = torch.x * TILE;
+    const py = torch.y * TILE;
+    const wx = px + (torch.side > 0 ? 24 : 8);
+    const wy = py + 10;
+    const flick = 0.65 + 0.35 * Math.sin(t * 0.014 + torch.x * 1.8 + torch.y * 1.3);
+    
     ctx.fillStyle = `rgba(249,115,22,${0.82 * flick})`;
     ctx.beginPath();
     ctx.ellipse(wx, wy + 2, 1.8, 2.8, 0, 0, Math.PI * 2);
@@ -7684,7 +7704,6 @@ function drawDungeonDecor(){
     ctx.fillRect(px + 18, py + 16, 2, 2);
   }
 
-  for (const torch of DUNGEON_TORCHES) drawWallTorch(torch.x, torch.y, torch.side);
   for (const pillar of DUNGEON_PILLARS) drawPillar(pillar.x, pillar.y);
   drawDebris(20, 28);
   drawDebris(34, 30);
