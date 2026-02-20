@@ -275,29 +275,20 @@ export function createActionResolver(deps) {
     const rawSlot = inv[rawIdx];
     const rawQty = Math.max(1, rawSlot.qty | 0);
 
-    // Find existing cooked stack to add to
-    const cookedIdx = inv.findIndex((s) => s && s.id === outId);
-    
-    // Remove one raw item
+    // Simply replace one raw with one cooked in the same slot
     if (rawQty > 1) {
       inv[rawIdx].qty = rawQty - 1;
-    } else {
-      inv[rawIdx] = null; // Slot is now empty
-    }
-    
-    // Add one cooked item
-    if (cookedIdx >= 0) {
-      // Stack with existing cooked items
-      inv[cookedIdx].qty = (inv[cookedIdx].qty || 1) + 1;
-    } else {
-      // No existing cooked stack - use the just-freed slot if empty, otherwise find any empty slot
-      const targetIdx = inv[rawIdx] === null ? rawIdx : inv.findIndex((s) => !s);
-      if (targetIdx >= 0) {
-        inv[targetIdx] = { id: outId, qty: 1 };
+      // Find empty slot for the cooked item
+      const emptyIdx = inv.findIndex((s) => !s);
+      if (emptyIdx >= 0) {
+        inv[emptyIdx] = { id: outId, qty: 1 };
       } else {
-        // Shouldn't happen since we just freed a slot
+        // No empty slot - can't cook
         return false;
       }
+    } else {
+      // Single item - just replace it
+      inv[rawIdx] = { id: outId, qty: 1 };
     }
     
     renderInv();
