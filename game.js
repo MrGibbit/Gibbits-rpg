@@ -236,6 +236,9 @@ stampVendorShopLayout({ map, width: W, height: H, startCastle, vendorShop });
     ]
   ];
   let zoneFlowApi = null;
+  // Startup message consolidation
+  let _suppressEquipMessages = false;
+  let _startupEquipmentNames = [];
   // Needed by quest-system initialization before zone-flow can be created.
   function syncDungeonQuestState() {
     if (!zoneFlowApi) return;
@@ -1502,12 +1505,19 @@ function consumeFoodFromInv(invIndex){
       }
       equipment[slot] = null;
       addToInventory(existing, 1);
-      chatLine(`<span class="muted">You unequip the ${Items[existing]?.name ?? existing}.</span>`);
+      if (!_suppressEquipMessages) {
+        chatLine(`<span class="muted">You unequip the ${Items[existing]?.name ?? existing}.</span>`);
+      }
     }
 
     inv[invIndex] = null;
     equipment[slot] = id;
-    chatLine(`<span class="good">You equip the ${Items[id]?.name ?? id}.</span>`);
+    if (!_suppressEquipMessages) {
+      chatLine(`<span class="good">You equip the ${Items[id]?.name ?? id}.</span>`);
+    } else {
+      // Track equipment for startup consolidation
+      _startupEquipmentNames.push(Items[id]?.name ?? id);
+    }
     renderInventoryAndEquipment();
   }
 
@@ -1910,6 +1920,7 @@ function consumeFoodFromInv(invIndex){
   const ACTIVE_CHAR_ID_KEY = "classic_active_char_id_v1";
   const CHAT_UI_KEY = "classic_chat_ui_v1";
   const WINDOWS_UI_KEY = "classic_windows_ui_v2_multi_open";
+  const OBJECTIVE_UI_KEY = "classic_objective_ui_v1";
   const BGM_KEY = "classic_bgm_v1";
 
   function parseMaybeJSON(raw){
@@ -2029,6 +2040,28 @@ function consumeFoodFromInv(invIndex){
     player.action={ type, endsAt: now()+ms, total: ms, label, onComplete };
   }
 
+  function forceActionCompletionErrorForDebug(){
+    startTimedAction("debug_throw", 0, "Debug callback...", () => {
+      throw new Error("Forced debug action completion error");
+    });
+    return true;
+  }
+
+  let lastRuntimeGuardLogAt = 0;
+  function safeRuntimeInvoke(scope, fn){
+    if (typeof fn !== "function") return undefined;
+    try {
+      return fn();
+    } catch (err) {
+      const t = now();
+      if ((t - lastRuntimeGuardLogAt) > 1000) {
+        lastRuntimeGuardLogAt = t;
+        console.warn(`[runtime-guard] ${scope} failed`, err);
+      }
+      return undefined;
+    }
+  }
+
   function inRangeOfTile(tx,ty,rangeTiles=1.1){
     const a=tileCenter(player.x,player.y);
     const b=tileCenter(tx,ty);
@@ -2132,6 +2165,13 @@ function consumeFoodFromInv(invIndex){
   const iconQst  = document.getElementById("iconQst");
   const iconBank = document.getElementById("iconBank");
   const iconVendor = document.getElementById("iconVendor");
+  const objectiveCard = document.getElementById("objectiveCard");
+  const objectiveHeader = document.getElementById("objectiveHeader");
+  const objectiveDragHandle = document.getElementById("objectiveDragHandle");
+  const objectiveCollapseBtn = document.getElementById("objectiveCollapseBtn");
+  const objectiveBody = document.getElementById("objectiveBody");
+  const objectiveText = document.getElementById("objectiveText");
+  const objectiveHint = document.getElementById("objectiveHint");
 
   const iconSet  = document.getElementById("iconSet");
 
@@ -2151,7 +2191,265 @@ function consumeFoodFromInv(invIndex){
 
   let windowDrag = null;
   let windowResize = null;
+  let objectiveDrag = null;
   let windowZ = 70;
+  let objectiveUiCache = "";
+  let objectiveNeedsAnchorReset = false;
+
+  function getObjectiveParentRect(){
+    if (!objectiveCard) {
+      return { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+    }
+    const parent = objectiveCard.offsetParent;
+    const rect = parent?.getBoundingClientRect?.();
+    return {
+      left: Math.round(rect?.left || 0),
+      top: Math.round(rect?.top || 0),
+      width: Math.round(parent?.clientWidth || window.innerWidth),
+      height: Math.round(parent?.clientHeight || window.innerHeight)
+    };
+  }
+
+  function getObjectiveAnchorMetrics(){
+    const hudTopRight = document.querySelector(".hudTopRight");
+    const parentRect = getObjectiveParentRect();
+    
+    // Icon bar is 252px tall (5 buttons @ 44px + 4 gaps @ 8px = 220 + 32 = 252)
+    // positioned at top: 12px within the page
+    // So icon bar bottom is at 12 + 252 = 264px
+    // Objective anchor should be 8px below that = 272px
+    // The card height is 126px (header 40 + body 86)
+    const width = Math.max(180, Math.round(hudTopRight?.getBoundingClientRect?.().width || 204));
+    const left = Math.round(((hudTopRight?.getBoundingClientRect?.().left ?? (window.innerWidth - width - 12)) - parentRect.left) || 12);
+    const top = 272 - parentRect.top;  // Fixed anchor at icon bar + 8px gap
+    
+    return { left, top, width };
+  }
+
+  function syncObjectiveWidthToHud(){
+    if (!objectiveCard) return;
+    const { width } = getObjectiveAnchorMetrics();
+    objectiveCard.style.width = `${width}px`;
+    objectiveCard.style.minWidth = `${width}px`;
+    objectiveCard.style.maxWidth = `${width}px`;
+  }
+
+  function placeObjectiveAtHudAnchor(){
+    if (!objectiveCard) return;
+    syncObjectiveWidthToHud();
+    const anchor = getObjectiveAnchorMetrics();
+    window.__DEBUG_PLACE = { anchor_top_before_clamp: anchor.top };
+    const clamped = clampObjectivePosition(anchor.left, anchor.top);
+    window.__DEBUG_PLACE.anchor_top_after_clamp = clamped.top;
+    objectiveCard.style.left = `${clamped.left}px`;
+    objectiveCard.style.top = `${clamped.top}px`;
+    objectiveCard.style.right = "auto";
+    objectiveCard.style.bottom = "auto";
+  }
+
+  function clampObjectivePosition(left, top){
+    if (!objectiveCard) return { left: 12, top: 176 };
+    const parentRect = getObjectiveParentRect();
+    const width = Math.max(180, 204);
+    const height = 126;  // Fixed estimate: header + body content
+    const maxTop = Math.max(0, parentRect.height - height);
+    
+    // Objective should stay below icon bar (which ends at 264px screen-space)
+    // Icon bar bottom - parentRect.top = 264 - 0 = 264
+    // Objective anchor = 264 + 8 = 272 - parentRect.top = 272 - 0 = 272
+    const anchorTop = 272 - parentRect.top;
+    const minTop = anchorTop;  // Don't go above the anchor
+    
+    return {
+      left: clamp(Math.round(left), 0, Math.max(0, parentRect.width - width)),
+      top: clamp(Math.round(top), minTop, maxTop)
+    };
+  }
+
+  function getObjectiveUiSnapshot(){
+    if (!objectiveCard) return null;
+    const parentRect = getObjectiveParentRect();
+    const rect = objectiveCard.getBoundingClientRect();
+    return {
+      left: windowNumPx(objectiveCard.style.left, rect.left - parentRect.left) | 0,
+      top: windowNumPx(objectiveCard.style.top, rect.top - parentRect.top) | 0,
+      collapsed: objectiveCard.classList.contains("isCollapsed"),
+      movedAt: now()
+    };
+  }
+
+  function saveObjectiveUI(){
+    const snapshot = getObjectiveUiSnapshot();
+    if (!snapshot) return;
+    writeStoredJSON(OBJECTIVE_UI_KEY, snapshot);
+  }
+
+  function syncObjectiveCollapseUI(){
+    if (!objectiveCard || !objectiveCollapseBtn || !objectiveBody) return;
+    const isCollapsed = objectiveCard.classList.contains("isCollapsed");
+    objectiveCollapseBtn.textContent = isCollapsed ? "▸" : "▾";
+    objectiveCollapseBtn.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+    objectiveBody.setAttribute("aria-hidden", isCollapsed ? "true" : "false");
+    objectiveCollapseBtn.title = isCollapsed ? "Expand objective" : "Collapse objective";
+  }
+
+  function applyObjectiveUI(saved){
+    if (!objectiveCard || !saved || typeof saved !== "object") return;
+    syncObjectiveWidthToHud();
+    if (saved.collapsed) {
+      objectiveCard.classList.add("isCollapsed");
+    } else {
+      objectiveCard.classList.remove("isCollapsed");
+    }
+
+    const left = Number(saved.left);
+    const top = Number(saved.top);
+    const hasUserPosition = Number.isFinite(Number(saved.movedAt));
+    const anchor = getObjectiveAnchorMetrics();
+    const isNearAnchorBand = Number.isFinite(top) && Math.abs(Math.round(top) - anchor.top) <= 96;
+    objectiveNeedsAnchorReset = true;
+    if (hasUserPosition && isNearAnchorBand && Number.isFinite(left) && Number.isFinite(top)) {
+      const clamped = clampObjectivePosition(left, top);
+      objectiveCard.style.left = `${clamped.left}px`;
+      objectiveCard.style.top = `${clamped.top}px`;
+      objectiveCard.style.right = "auto";
+      objectiveCard.style.bottom = "auto";
+    } else {
+      placeObjectiveAtHudAnchor();
+    }
+
+    syncObjectiveCollapseUI();
+  }
+
+  function getDockContributionSummary() {
+    const req = PROJECT_REQUIREMENTS?.dock;
+    const proj = getProjectsRef?.()?.rivermoor?.dock;
+    if (!req || !proj) {
+      return {
+        hasContribution: false,
+        completionRatio: 0,
+        isComplete: false,
+        isBuilding: false
+      };
+    }
+
+    const itemReqTotal = Object.values(req.items || {}).reduce((sum, value) => sum + Math.max(0, value | 0), 0);
+    const itemDonTotal = Object.entries(req.items || {}).reduce((sum, [itemId, value]) => {
+      const needed = Math.max(0, value | 0);
+      const donated = Math.max(0, proj.itemsDonated?.[itemId] | 0);
+      return sum + Math.min(needed, donated);
+    }, 0);
+
+    const goldReq = Math.max(0, req.gold | 0);
+    const goldDon = Math.min(goldReq, Math.max(0, proj.goldDonated | 0));
+    const reqTotal = itemReqTotal + goldReq;
+    const donatedTotal = itemDonTotal + goldDon;
+
+    return {
+      hasContribution: donatedTotal > 0,
+      completionRatio: reqTotal > 0 ? clamp(donatedTotal / reqTotal, 0, 1) : 0,
+      isComplete: proj.state === "complete",
+      isBuilding: proj.state === "funded"
+    };
+  }
+
+  function getOnboardingObjectiveState() {
+    const firstQuestId = "first_watch";
+    const firstCompleted = isQuestCompleted(firstQuestId);
+    const firstStarted = isQuestStarted(firstQuestId);
+    const renown = getTownRenown("rivermoor") | 0;
+    const dockState = getProjectState("rivermoor", "dock");
+    const dockSummary = getDockContributionSummary();
+
+    if (!firstCompleted) {
+      if (!firstStarted) {
+        return {
+          done: false,
+          text: "Talk to the Quartermaster to begin your first quest.",
+          hint: "Tip: Quartermaster is by the starting castle gate."
+        };
+      }
+      return {
+        done: false,
+        text: "Follow First Watch objectives in your quest log.",
+        hint: "Tip: open Quests with the quest icon."
+      };
+    }
+
+    if (!windowsOpen.townProjects && !dockSummary.hasContribution && !dockSummary.isBuilding && !dockSummary.isComplete) {
+      return {
+        done: false,
+        text: "Open Town Projects and check the Dock project.",
+        hint: "Talk to Blacksmith Torren or the Mayor to open projects."
+      };
+    }
+
+    if (dockState === "locked") {
+      return {
+        done: false,
+        text: `Earn Renown to unlock Dock (${renown}/25).`,
+        hint: "Finish quest objectives and early progress tasks to gain Renown."
+      };
+    }
+
+    if (!dockSummary.hasContribution && !dockSummary.isBuilding && !dockSummary.isComplete) {
+      return {
+        done: false,
+        text: "Contribute any required item or gold to Dock.",
+        hint: "Tip: any first donation advances onboarding."
+      };
+    }
+
+    if (dockSummary.isBuilding) {
+      return {
+        done: false,
+        text: "Dock is building. Hold position while Rivermoor upgrades.",
+        hint: "Keep questing while construction finishes."
+      };
+    }
+
+    if (!dockSummary.isComplete) {
+      const pct = Math.max(1, Math.round(dockSummary.completionRatio * 100));
+      return {
+        done: false,
+        text: `Keep donating to Dock (${pct}% complete).`,
+        hint: "Open Town Projects to view remaining requirements."
+      };
+    }
+
+    return {
+      done: true,
+      text: "Onboarding complete. Continue quests and town projects.",
+      hint: ""
+    };
+  }
+
+  function renderOnboardingObjective() {
+    if (!objectiveCard || !objectiveText || !objectiveHint) return;
+
+    const overlayVisible = !!(townboardingOverlay && townboardingOverlay.style.display !== "none");
+    if (overlayVisible) {
+      objectiveCard.classList.add("isHidden");
+      return;
+    }
+
+    const state = getOnboardingObjectiveState();
+    if (state.done) {
+      objectiveCard.classList.add("isHidden");
+      return;
+    }
+
+    const cache = `${state.text}|||${state.hint || ""}`;
+    if (cache !== objectiveUiCache) {
+      objectiveUiCache = cache;
+      objectiveText.textContent = state.text;
+      objectiveHint.textContent = state.hint || "";
+    }
+
+    objectiveHint.style.display = state.hint ? "block" : "none";
+    objectiveCard.classList.remove("isHidden");
+    syncObjectiveCollapseUI();
+  }
 
   function windowNumPx(value, fallback){
     const n = parseFloat(value);
@@ -2246,6 +2544,13 @@ function consumeFoodFromInv(invIndex){
   }
 
   (function initWindowControls(){
+    const savedObjectiveUI = readStoredJSON(OBJECTIVE_UI_KEY, null);
+    if (savedObjectiveUI && typeof savedObjectiveUI === "object") {
+      applyObjectiveUI(savedObjectiveUI);
+    } else {
+      placeObjectiveAtHudAnchor();
+    }
+
     const closeBtns = document.querySelectorAll(".winClose[data-close]");
     for (const btn of closeBtns){
       if (btn.dataset.boundClose === "1") continue;
@@ -2308,6 +2613,56 @@ function consumeFoodFromInv(invIndex){
       }
     }
 
+    if (objectiveDragHandle && objectiveCard && objectiveDragHandle.dataset.boundDrag !== "1"){
+      objectiveDragHandle.dataset.boundDrag = "1";
+      objectiveDragHandle.addEventListener("mousedown", (e)=>{
+        if (e.button !== 0) return;
+        if (e.target.closest("button,input,textarea,select,a")) return;
+        e.preventDefault();
+        const rect = objectiveCard.getBoundingClientRect();
+        objectiveDrag = {
+          dx: e.clientX - rect.left,
+          dy: e.clientY - rect.top
+        };
+      });
+    }
+
+    if (objectiveCollapseBtn && objectiveCard && objectiveCollapseBtn.dataset.boundToggle !== "1"){
+      objectiveCollapseBtn.dataset.boundToggle = "1";
+      objectiveCollapseBtn.addEventListener("click", ()=>{
+        objectiveCard.classList.toggle("isCollapsed");
+        syncObjectiveCollapseUI();
+        saveObjectiveUI();
+      });
+    }
+
+    syncObjectiveCollapseUI();
+
+    if (objectiveCard){
+      syncObjectiveWidthToHud();
+      const parentRect = getObjectiveParentRect();
+      const rect = objectiveCard.getBoundingClientRect();
+      const clamped = clampObjectivePosition(rect.left - parentRect.left, rect.top - parentRect.top);
+      objectiveCard.style.left = `${clamped.left}px`;
+      objectiveCard.style.top = `${clamped.top}px`;
+      objectiveCard.style.right = "auto";
+      objectiveCard.style.bottom = "auto";
+    }
+
+    if (objectiveNeedsAnchorReset){
+      requestAnimationFrame(()=>{
+        if (!objectiveCard) return;
+        const anchor = getObjectiveAnchorMetrics();
+        const parentRect = getObjectiveParentRect();
+        const rect = objectiveCard.getBoundingClientRect();
+        if (Math.abs(Math.round(rect.top - parentRect.top) - anchor.top) > 96) {
+          placeObjectiveAtHudAnchor();
+        }
+        saveObjectiveUI();
+        objectiveNeedsAnchorReset = false;
+      });
+    }
+
     window.addEventListener("mousemove", (e)=>{
       if (windowDrag){
         const el = windowDrag.el;
@@ -2332,17 +2687,41 @@ function consumeFoodFromInv(invIndex){
         el.style.width = `${width|0}px`;
         el.style.height = `${height|0}px`;
       }
+
+      if (objectiveDrag && objectiveCard){
+        const parentRect = getObjectiveParentRect();
+        const nextLeft = (e.clientX - objectiveDrag.dx) - parentRect.left;
+        const nextTop = (e.clientY - objectiveDrag.dy) - parentRect.top;
+        const clamped = clampObjectivePosition(nextLeft, nextTop);
+        objectiveCard.style.left = `${clamped.left}px`;
+        objectiveCard.style.top = `${clamped.top}px`;
+        objectiveCard.style.right = "auto";
+        objectiveCard.style.bottom = "auto";
+      }
     });
 
     window.addEventListener("mouseup", ()=>{
       if (windowDrag || windowResize) saveWindowsUI();
+      if (objectiveDrag) saveObjectiveUI();
       windowDrag = null;
       windowResize = null;
+      objectiveDrag = null;
     });
 
     window.addEventListener("resize", ()=>{
       clampAllWindows();
       saveWindowsUI();
+      if (objectiveCard){
+        syncObjectiveWidthToHud();
+        const parentRect = getObjectiveParentRect();
+        const rect = objectiveCard.getBoundingClientRect();
+        const clamped = clampObjectivePosition(rect.left - parentRect.left, rect.top - parentRect.top);
+        objectiveCard.style.left = `${clamped.left}px`;
+        objectiveCard.style.top = `${clamped.top}px`;
+        objectiveCard.style.right = "auto";
+        objectiveCard.style.bottom = "auto";
+        saveObjectiveUI();
+      }
     });
 
     clampAllWindows();
@@ -2745,9 +3124,23 @@ function consumeFoodFromInv(invIndex){
 
     // Default options - use stored state if not provided
     opts = opts || currentTownProjectsUIState;
-    const viewMode = opts.viewMode || "all";
-    const focusProjectId = opts.focusProjectId || null;
+    const requestedViewMode = opts.viewMode || "all";
+    const requestedFocusProjectId = opts.focusProjectId || null;
     const openedByNpcId = opts.openedByNpcId || null;
+
+    const openerConfig = openedByNpcId ? TOWN_PROJECT_NPC[openedByNpcId] : null;
+    const openedByProjectNpc = !!openerConfig;
+
+    let viewMode = requestedViewMode;
+    let focusProjectId = requestedFocusProjectId;
+
+    // Enforce NPC-specific scope:
+    // - Mayor can access all projects.
+    // - Other project NPCs are locked to their focused project only.
+    if (openedByProjectNpc && openedByNpcId !== "mayor") {
+      viewMode = "single";
+      focusProjectId = openerConfig.focusProjectId || focusProjectId;
+    }
 
     // Store the current state for game loop re-renders
     currentTownProjectsUIState = { viewMode, focusProjectId, openedByNpcId };
@@ -2810,8 +3203,10 @@ function consumeFoodFromInv(invIndex){
       projectsToRender = projectOrder.filter(id => id === focusProjectId);
     }
 
-    // If single view, also add a "View all projects" button at the top
-    if (viewMode === "single" && focusProjectId) {
+    // In allowed contexts, single-view can offer a way back to all-projects.
+    // Project NPCs (except mayor) are intentionally locked to their own project.
+    const canSwitchToAllProjects = !openedByProjectNpc || openedByNpcId === "mayor";
+    if (viewMode === "single" && focusProjectId && canSwitchToAllProjects) {
       const viewAllBtn = document.createElement("button");
       viewAllBtn.textContent = "← View all projects";
       viewAllBtn.style.marginBottom = "12px";
@@ -4289,6 +4684,9 @@ function consumeFoodFromInv(invIndex){
     addToInventory("knife", 1);
     addToInventory("flint_steel", 1);
 
+    // Suppress individual equipment messages during startup - will consolidate in bootstrap
+    _suppressEquipMessages = true;
+    _startupEquipmentNames = [];
 
     if (player.class === "Warrior"){
       addToInventory("crude_sword", 1);
@@ -4307,6 +4705,8 @@ function consumeFoodFromInv(invIndex){
       const staffIdx = inv.findIndex(s=>s && s.id==="staff");
       if (staffIdx>=0) equipFromInv(staffIdx);
     }
+
+    _suppressEquipMessages = false;
 
     renderQuiver();
   }
@@ -4415,7 +4815,7 @@ function consumeFoodFromInv(invIndex){
 
   let ensureWalkIntoRangeAndActImpl = () => {};
   function ensureWalkIntoRangeAndAct(){
-    return ensureWalkIntoRangeAndActImpl();
+    return safeRuntimeInvoke("ensureWalkIntoRangeAndAct", ensureWalkIntoRangeAndActImpl);
   }
 
   // ---------- Interaction helpers ----------
@@ -8027,7 +8427,7 @@ function drawCauldron(x, y){
   });
 
   // ---------- Saving / Loading (with migration) ----------
-  const { serialize, deserialize } = createPersistence({
+  const { serialize, deserialize, getLastLoadRepairReport } = createPersistence({
     now,
     player,
     Skills,
@@ -8109,10 +8509,12 @@ function drawCauldron(x, y){
     const profile = getStoredCharacterProfile(charId);
     applyCharacterProfileToPlayer(profile);
 
+    const loaded = deserialize(saveRow.raw);
+    if (!loaded) return false;
+
     closeLoadCharOverlay();
     closeStartOverlay();
     charOverlay.style.display = "none";
-    deserialize(saveRow.raw);
     seedDungeonZone({ forcePopulateMobs: !hasDungeonZoneSave, migrateLegacyPositions: true });
     refreshStartOverlay();
     chatLine(`<span class="good">Loaded ${profile?.name ?? "character"}'s save.</span>`);
@@ -8122,9 +8524,13 @@ function drawCauldron(x, y){
   if (startContinueBtn){
     startContinueBtn.onclick = () => {
       const activeId = getActiveCharacterId();
-      if (!activeId || !loadCharacterSaveById(activeId)){
+      if (!activeId){
         refreshStartOverlay();
         return chatLine(`<span class="warn">No save found.</span>`);
+      }
+      if (!loadCharacterSaveById(activeId)){
+        refreshStartOverlay();
+        return chatLine(`<span class="warn">Save could not be loaded.</span>`);
       }
     };
   }
@@ -8166,7 +8572,7 @@ function drawCauldron(x, y){
   document.getElementById("loadBtn").onclick=()=>{
     openLoadCharacterOverlay((charId) => {
       if (!loadCharacterSaveById(charId)){
-        chatLine(`<span class="warn">No save found for that character.</span>`);
+        chatLine(`<span class="warn">Save could not be loaded for that character.</span>`);
       }
     });
   };
@@ -8206,6 +8612,7 @@ function drawCauldron(x, y){
     getCurrentSaveKey,
     serialize,
     deserialize,
+    getLastLoadRepairReport,
     getQuestSnapshot,
     emitQuestEvent: trackQuestEvent,
     getTownRenown,
@@ -8213,6 +8620,7 @@ function drawCauldron(x, y){
     addGold,
     addToInventory,
     renderInv,
+    forceActionCompleteError: forceActionCompletionErrorForDebug,
     clamp,
     update,
     render
@@ -8392,7 +8800,7 @@ function drawCauldron(x, y){
     if (player.action.type!=="idle" && t>=player.action.endsAt){
       const done=player.action.onComplete;
       player.action={type:"idle", endsAt:0, total:0, label:"Idle", onComplete:null};
-      if (typeof done==="function") done();
+      safeRuntimeInvoke("action.onComplete", done);
       if (player.target) ensureWalkIntoRangeAndAct();
     }
 
@@ -8464,6 +8872,7 @@ function drawCauldron(x, y){
     renderHPHUD();
     // Update town projects window if open
     if (windowsOpen.townProjects) renderTownProjectsUI();
+    renderOnboardingObjective();
 
   }
 
@@ -8554,8 +8963,8 @@ function drawCauldron(x, y){
     const t=now();
     const dt=clamp((t-last)/1000, 0, 0.05);
     last=t;
-    update(dt);
-    render();
+    safeRuntimeInvoke("loop.update", () => update(dt));
+    safeRuntimeInvoke("loop.render", () => render());
     requestAnimationFrame(loop);
   }
 
@@ -8632,11 +9041,14 @@ initWorldSeed();
     renderPanelsOnBootstrap();
 
     if (!TEST_MODE) {
-      chatLine(`<span class="muted">Tip:</span> Talk to Quartermaster Bryn in the starter castle to begin your first quest.`);
-      chatLine(`<span class="muted">Tip:</span> Rat training packs are now south of the river. Cross a bridge to reach them early.`);
-      chatLine(`<span class="muted">Tip:</span> The vendor is inside the shop east of the starter castle.`);
-      chatLine(`<span class="muted">Tip:</span> Loot auto-picks up when you stand near it. If full, items stay on the ground.`);
-      chatLine(`<span class="muted">Fletching:</span> Right-click <b>Knife</b> -> Use, then click a <b>Log</b> to fletch arrows into your quiver.`);
+      // Show consolidated startup equipment
+      if (_startupEquipmentNames.length > 0) {
+        const equipList = _startupEquipmentNames.join(" and ");
+        chatLine(`<span class="good">You start with: ${equipList}.</span>`);
+      }
+      // Show essential tips only
+      chatLine(`<span class="muted">Tip:</span> Talk to <b>Quartermaster Bryn</b> in the starter castle to begin.`);
+      chatLine(`<span class="muted">Tip:</span> Loot auto-picks up when you stand near it. If full, items stay on ground.`);
     }
   }
 
