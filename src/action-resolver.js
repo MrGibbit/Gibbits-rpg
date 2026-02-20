@@ -21,6 +21,8 @@ export function createActionResolver(deps) {
     MINING_RESOURCE_RULES,
     hasItem,
     Items,
+    inv,
+    renderInv,
     startTimedAction,
     removeItemsFromInventory,
     setUseState,

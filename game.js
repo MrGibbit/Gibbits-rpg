@@ -5123,6 +5123,8 @@ function consumeFoodFromInv(invIndex){
     MINING_RESOURCE_RULES,
     hasItem,
     Items,
+    inv,
+    renderInv,
     startTimedAction,
     removeItemsFromInventory,
     setUseState,
@@ -7774,6 +7776,8 @@ function drawHearthDecor(){
     return !(tx < startX - 1 || tx > endX + 1 || ty < startY - 1 || ty > endY + 1);
   }
 
+  const cauldron = interactables.find((it) => it.type === "cauldron") || HEARTH_CAULDRON_TILE;
+
   function drawLog(tx, ty){
     if (!inView(tx, ty)) return;
     const px = tx * TILE;
@@ -7810,8 +7814,8 @@ function drawHearthDecor(){
 
   drawLog(3, 16);
   drawLog(5, 16);
-  drawStool(4, 17);
-  drawWoodPile(6, 15);
+  drawStool(cauldron.x, cauldron.y + 1);
+  drawStool(cauldron.x, cauldron.y - 1);
 }
 
 function drawDungeonDecor(){
@@ -8965,6 +8969,30 @@ function drawCauldron(x, y){
 
   // ---------- Loop ----------
   let last=now();
+  let bgIntervalId = null;
+  let bgLast = 0;
+
+  function isStartMenuOpen(){
+    return !!(startOverlay && startOverlay.style.display !== "none");
+  }
+
+  function startBackgroundTick(){
+    if (bgIntervalId) return;
+    bgLast = now();
+    bgIntervalId = setInterval(() => {
+      if (isStartMenuOpen()) return;
+      const t = now();
+      const dt = Math.min(1, (t - bgLast) / 1000);
+      bgLast = t;
+      safeRuntimeInvoke("loop.update", () => update(dt));
+    }, 1000);
+  }
+
+  function stopBackgroundTick(){
+    if (!bgIntervalId) return;
+    clearInterval(bgIntervalId);
+    bgIntervalId = null;
+  }
 
   function update(dt){
     const t=now();
@@ -9181,10 +9209,21 @@ function drawCauldron(x, y){
     const t=now();
     const dt=clamp((t-last)/1000, 0, 0.05);
     last=t;
-    safeRuntimeInvoke("loop.update", () => update(dt));
-    safeRuntimeInvoke("loop.render", () => render());
+    if (!isStartMenuOpen()){
+      safeRuntimeInvoke("loop.update", () => update(dt));
+      safeRuntimeInvoke("loop.render", () => render());
+    }
     requestAnimationFrame(loop);
   }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      startBackgroundTick();
+    } else {
+      stopBackgroundTick();
+      last = now();
+    }
+  });
 
   // ========== DEBUG OVERLAY (F9 TOGGLE) ==========
   let showDebugOverlay = false;
