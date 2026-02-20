@@ -269,19 +269,37 @@ export function createActionResolver(deps) {
     const cookedItem = Items[outId];
     if (!rawItem || !cookedItem) return false;
 
-    const idx = inv.findIndex((s) => s && s.id === cookId);
-    if (idx < 0) return false;
+    const rawIdx = inv.findIndex((s) => s && s.id === cookId);
+    if (rawIdx < 0) return false;
 
-    const slot = inv[idx];
-    const qty = Math.max(1, slot.qty | 0);
-    if (qty > 1) {
-      const empty = inv.findIndex((s) => !s);
-      if (empty < 0) return false;
-      inv[idx] = { id: cookId, qty: qty - 1 };
-      inv[empty] = { id: outId, qty: 1 };
+    const rawSlot = inv[rawIdx];
+    const rawQty = Math.max(1, rawSlot.qty | 0);
+
+    // Find existing cooked stack to add to
+    const cookedIdx = inv.findIndex((s) => s && s.id === outId);
+    
+    // Remove one raw item
+    if (rawQty > 1) {
+      inv[rawIdx].qty = rawQty - 1;
     } else {
-      inv[idx] = { id: outId, qty: 1 };
+      inv[rawIdx] = null; // Slot is now empty
     }
+    
+    // Add one cooked item
+    if (cookedIdx >= 0) {
+      // Stack with existing cooked items
+      inv[cookedIdx].qty = (inv[cookedIdx].qty || 1) + 1;
+    } else {
+      // No existing cooked stack - use the just-freed slot if empty, otherwise find any empty slot
+      const targetIdx = inv[rawIdx] === null ? rawIdx : inv.findIndex((s) => !s);
+      if (targetIdx >= 0) {
+        inv[targetIdx] = { id: outId, qty: 1 };
+      } else {
+        // Shouldn't happen since we just freed a slot
+        return false;
+      }
+    }
+    
     renderInv();
     return true;
   }
